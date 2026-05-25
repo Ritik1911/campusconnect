@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CampusConnect — Create Post</title>
+  <link rel="stylesheet" href="css/style.css"/>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">🎓 CampusConnect</div>
+    <div class="nav-links">
+      <a href="dashboard.html" class="nav-link">🏠 Dashboard</a>
+      <a href="post.html" class="nav-link active">✏️ Post</a>
+    </div>
+    <div class="nav-user">
+      <span id="nav-username"></span>
+      <button class="btn-logout" onclick="logout()">Logout</button>
+    </div>
+  </nav>
+
+  <div class="app-container">
+    <div class="post-page-layout">
+      <div class="post-form-card">
+        <h2 class="post-form-title">✏️ Create a Post</h2>
+        <p class="post-form-sub">Share something with your campus community</p>
+
+        <div class="form-group">
+          <label>Choose a Topic *</label>
+          <div class="topic-grid">
+            <div class="topic-tile" data-topic="Sincere Work" onclick="selectTopic(this)">📚<br/>Sincere Work</div>
+            <div class="topic-tile" data-topic="Fun Work" onclick="selectTopic(this)">🎮<br/>Fun Work</div>
+            <div class="topic-tile" data-topic="Get Together" onclick="selectTopic(this)">🤝<br/>Get Together</div>
+            <div class="topic-tile" data-topic="Party" onclick="selectTopic(this)">🎉<br/>Party</div>
+            <div class="topic-tile" data-topic="Earning" onclick="selectTopic(this)">💰<br/>Earning</div>
+            <div class="topic-tile" data-topic="Help" onclick="selectTopic(this)">🆘<br/>Help</div>
+            <div class="topic-tile" data-topic="Learn" onclick="selectTopic(this)">🧠<br/>Learn</div>
+            <div class="topic-tile" data-topic="Assignment" onclick="selectTopic(this)">📝<br/>Assignment</div>
+            <div class="topic-tile" data-topic="Exam" onclick="selectTopic(this)">📊<br/>Exam</div>
+            <div class="topic-tile" data-topic="Other" onclick="selectTopic(this)">💬<br/>Other/Custom</div>
+          </div>
+        </div>
+
+        <div class="form-group" id="custom-topic-group" style="display:none;">
+          <label>Custom Topic</label>
+          <input type="text" id="custom-topic" placeholder="e.g. Cricket Match, Coding Club..."/>
+        </div>
+
+        <div class="form-group">
+          <label>Post Title *</label>
+          <input type="text" id="post-title" placeholder="Describe in one line..." maxlength="100"/>
+          <span class="char-count" id="title-count">0/100</span>
+        </div>
+
+        <div class="form-group">
+          <label>Description *</label>
+          <textarea id="post-desc" rows="5" placeholder="Explain in detail — what, when, where, how..." maxlength="500"></textarea>
+          <span class="char-count" id="desc-count">0/500</span>
+        </div>
+
+        <div class="form-group">
+          <label>Preferred Contact Method</label>
+          <select id="contact-pref">
+            <option value="profile">View my profile</option>
+            <option value="whatsapp">WhatsApp</option>
+            <option value="meet">Meet on campus</option>
+            <option value="comment">Comment below</option>
+          </select>
+        </div>
+
+        <div id="post-error" class="error-msg"></div>
+        <div id="post-success" class="success-msg"></div>
+        <button class="btn-primary" id="post-btn" onclick="submitPost()">🚀 Publish Post</button>
+      </div>
+
+      <div class="tips-sidebar">
+        <div class="tips-card">
+          <h3>💡 Tips for a Great Post</h3>
+          <ul>
+            <li>Write a clear, specific title</li>
+            <li>Choose the right topic for better visibility</li>
+            <li>Include all relevant details</li>
+            <li>Set your preferred contact method</li>
+            <li>Be respectful and community-friendly</li>
+          </ul>
+        </div>
+        <div class="tips-card">
+          <h3>📂 Topic Guide</h3>
+          <ul>
+            <li><strong>Sincere Work</strong> — Projects, research, serious collaborations</li>
+            <li><strong>Fun Work</strong> — Creative, games, light projects</li>
+            <li><strong>Get Together</strong> — Social meetups, hangouts</li>
+            <li><strong>Earning</strong> — Freelance, part-time, gigs</li>
+            <li><strong>Help</strong> — Need or offer help</li>
+            <li><strong>Assignment</strong> — Homework, group work</li>
+            <li><strong>Exam</strong> — Exam prep, PYQs, doubt clearing</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/post.js"></script>
+</body>
+</html>

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CampusConnect — Dashboard</title>
+  <link rel="stylesheet" href="css/style.css"/>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">🎓 CampusConnect</div>
+    <div class="nav-links">
+      <a href="dashboard.html" class="nav-link active">🏠 Dashboard</a>
+      <a href="post.html" class="nav-link">✏️ Post</a>
+    </div>
+    <div class="nav-user">
+      <span id="nav-username"></span>
+      <button class="btn-logout" onclick="logout()">Logout</button>
+    </div>
+  </nav>
+
+  <div class="app-container">
+
+    <div class="welcome-banner">
+      <div>
+        <h2 id="welcome-text">Welcome! 👋</h2>
+        <p id="welcome-sub">What's happening on campus today?</p>
+      </div>
+      <a href="post.html" class="btn-post-now">+ Create Post</a>
+    </div>
+
+    <div class="section-title">📂 Filter by Topic</div>
+    <div class="topic-chips">
+      <button class="chip active" onclick="filterPosts('all', this)">🌐 All</button>
+      <button class="chip" onclick="filterPosts('Sincere Work', this)">📚 Sincere Work</button>
+      <button class="chip" onclick="filterPosts('Fun Work', this)">🎮 Fun Work</button>
+      <button class="chip" onclick="filterPosts('Get Together', this)">🤝 Get Together</button>
+      <button class="chip" onclick="filterPosts('Party', this)">🎉 Party</button>
+      <button class="chip" onclick="filterPosts('Earning', this)">💰 Earning</button>
+      <button class="chip" onclick="filterPosts('Help', this)">🆘 Help</button>
+      <button class="chip" onclick="filterPosts('Learn', this)">🧠 Learn</button>
+      <button class="chip" onclick="filterPosts('Assignment', this)">📝 Assignment</button>
+      <button class="chip" onclick="filterPosts('Exam', this)">📊 Exam</button>
+      <button class="chip" onclick="filterPosts('Other', this)">💬 Other</button>
+    </div>
+
+    <div class="section-title">💡 Suggestions For You</div>
+    <div id="suggestions-box" class="suggestions-grid"></div>
+
+    <div class="section-title">📰 Latest Posts</div>
+    <div id="posts-feed" class="posts-feed">
+      <div class="empty-state">Loading posts...</div>
+    </div>
+
+  </div>
+
+  <script src="js/dashboard.js"></script>
+</body>
+</html>
