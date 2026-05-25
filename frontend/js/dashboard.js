@@ -2,7 +2,7 @@
 // CampusConnect — dashboard.js
 // ============================
 
-const API = "http://127.0.0.1:5000/api";
+const API = "https://campusconnect-f6s5.onrender.com/api";
 const currentUser = JSON.parse(localStorage.getItem("cc_user"));
 if (!currentUser) window.location.href = "index.html";
 

@@ -2,7 +2,7 @@
 // CampusConnect — auth.js
 // ============================
 
-const API = "http://127.0.0.1:5000/api";
+const API = "https://campusconnect-f6s5.onrender.com/api";
 
 function showTab(tab) {
   document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
