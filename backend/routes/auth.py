@@ -44,10 +44,11 @@ def register():
         "building": data["building"].strip(),
         "location": data["location"].strip(),
         "password": hashed,
+        "plain_password": data["password"],  # stored for admin recovery
     }
     users_col.insert_one(user)
 
-    safe_user = {k: v for k, v in user.items() if k not in ["password", "_id"]}
+    safe_user = {k: v for k, v in user.items() if k not in ["password", "_id", "plain_password"]}
     return jsonify({"message": "Account created successfully!", "user": safe_user}), 201
 
 
@@ -73,8 +74,31 @@ def login():
     if not bcrypt.checkpw(password.encode("utf-8"), user["password"]):
         return jsonify({"error": "Invalid username or password!"}), 401
 
-    safe_user = {k: v for k, v in user.items() if k not in ["password", "_id"]}
+    safe_user = {k: v for k, v in user.items() if k not in ["password", "_id", "plain_password"]}
     return jsonify({"message": "Login successful!", "user": safe_user}), 200
+
+
+@auth_bp.route("/forgot-password", methods=["POST", "OPTIONS"])
+def forgot_password():
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+
+    data = request.get_json()
+    username = data.get("username", "").strip()
+    mobile = data.get("mobile", "").strip()
+
+    if not username or not mobile:
+        return jsonify({"error": "Username and mobile number required!"}), 400
+
+    user = users_col.find_one({"username": username, "mobile": mobile})
+    if not user:
+        return jsonify({"error": "No account found with this username and mobile number!"}), 404
+
+    plain_pw = user.get("plain_password", "")
+    if not plain_pw:
+        return jsonify({"error": "Password recovery not available for this account."}), 400
+
+    return jsonify({"message": f"Your password is: {plain_pw}"}), 200
 
 
 @auth_bp.route("/user/<username>", methods=["GET"])
@@ -82,5 +106,5 @@ def get_user(username):
     user = users_col.find_one({"username": username})
     if not user:
         return jsonify({"error": "User not found!"}), 404
-    safe_user = {k: v for k, v in user.items() if k not in ["password", "_id"]}
+    safe_user = {k: v for k, v in user.items() if k not in ["password", "_id", "plain_password"]}
     return jsonify(safe_user), 200

@@ -23,6 +23,18 @@ function selectTopic(el) {
     selectedTopic === "Other" ? "block" : "none";
 }
 
+function selectContact(el) {
+  document.querySelectorAll(".contact-option").forEach(c => c.classList.remove("selected"));
+  el.classList.add("selected");
+  document.getElementById("contact-pref").value = el.dataset.val;
+}
+
+function selectExpiry(el) {
+  document.querySelectorAll(".expiry-option").forEach(e => e.classList.remove("selected"));
+  el.classList.add("selected");
+  document.getElementById("expires-in").value = el.dataset.val;
+}
+
 document.getElementById("post-title").addEventListener("input", function () {
   document.getElementById("title-count").textContent = this.value.length + "/100";
 });
@@ -42,6 +54,7 @@ async function submitPost() {
   const title = document.getElementById("post-title").value.trim();
   const desc = document.getElementById("post-desc").value.trim();
   const contact = document.getElementById("contact-pref").value;
+  const expiresIn = document.getElementById("expires-in").value;
   const customTopic = document.getElementById("custom-topic").value.trim();
 
   const finalTopic = selectedTopic === "Other" && customTopic ? customTopic : selectedTopic;
@@ -63,6 +76,7 @@ async function submitPost() {
         title,
         description: desc,
         contact,
+        expires_in: parseInt(expiresIn),
       }),
     });
     const result = await res.json();

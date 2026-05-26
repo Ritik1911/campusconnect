@@ -61,12 +61,43 @@
 
         <div class="form-group">
           <label>Preferred Contact Method</label>
-          <select id="contact-pref">
-            <option value="profile">View my profile</option>
-            <option value="whatsapp">WhatsApp</option>
-            <option value="meet">Meet on campus</option>
-            <option value="comment">Comment below</option>
-          </select>
+          <div class="contact-options">
+            <div class="contact-option" data-val="profile" onclick="selectContact(this)">
+              <div class="contact-icon">👤</div>
+              <div class="contact-label">View Profile</div>
+              <div class="contact-sub">Share your profile info</div>
+            </div>
+            <div class="contact-option" data-val="whatsapp" onclick="selectContact(this)">
+              <div class="contact-icon">💬</div>
+              <div class="contact-label">WhatsApp</div>
+              <div class="contact-sub">Contact via WhatsApp</div>
+            </div>
+            <div class="contact-option" data-val="meet" onclick="selectContact(this)">
+              <div class="contact-icon">🤝</div>
+              <div class="contact-label">Meet on Campus</div>
+              <div class="contact-sub">Meet in person</div>
+            </div>
+            <div class="contact-option" data-val="comment" onclick="selectContact(this)">
+              <div class="contact-icon">💬</div>
+              <div class="contact-label">Comment</div>
+              <div class="contact-sub">Reply in comments</div>
+            </div>
+          </div>
+          <input type="hidden" id="contact-pref" value="profile"/>
+        </div>
+
+        <div class="form-group">
+          <label>⏰ How long should this post stay? *</label>
+          <div class="expiry-options">
+            <div class="expiry-option selected" data-val="0" onclick="selectExpiry(this)">🔁<br/>Forever</div>
+            <div class="expiry-option" data-val="1" onclick="selectExpiry(this)">1<br/>Hour</div>
+            <div class="expiry-option" data-val="6" onclick="selectExpiry(this)">6<br/>Hours</div>
+            <div class="expiry-option" data-val="12" onclick="selectExpiry(this)">12<br/>Hours</div>
+            <div class="expiry-option" data-val="24" onclick="selectExpiry(this)">1<br/>Day</div>
+            <div class="expiry-option" data-val="72" onclick="selectExpiry(this)">3<br/>Days</div>
+            <div class="expiry-option" data-val="168" onclick="selectExpiry(this)">1<br/>Week</div>
+          </div>
+          <input type="hidden" id="expires-in" value="0"/>
         </div>
 
         <div id="post-error" class="error-msg"></div>

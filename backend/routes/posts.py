@@ -23,6 +23,12 @@ def create_post():
     if not user:
         return jsonify({"error": "User not found!"}), 404
 
+    # Post expiry time (in hours, 0 = forever)
+    expires_in = data.get("expires_in", 0)
+    expires_at = None
+    if expires_in and int(expires_in) > 0:
+        expires_at = int(time.time() * 1000) + (int(expires_in) * 3600 * 1000)
+
     post = {
         "username": data["username"],
         "fullname": user["fullname"],
@@ -35,7 +41,9 @@ def create_post():
         "title": data["title"],
         "description": data["description"],
         "contact": data.get("contact", "profile"),
+        "comments": [],
         "createdAt": int(time.time() * 1000),
+        "expires_at": expires_at,
     }
 
     result = posts_col.insert_one(post)
@@ -51,11 +59,64 @@ def get_posts():
     if topic and topic != "all":
         query["topic"] = topic
 
-    posts = list(posts_col.find(query).sort("createdAt", -1).limit(50))
+    now = int(time.time() * 1000)
+    posts = list(posts_col.find(query).sort("createdAt", -1).limit(100))
+
+    # Filter expired posts
+    active_posts = []
     for p in posts:
         p["_id"] = str(p["_id"])
+        if p.get("expires_at") and p["expires_at"] < now:
+            continue
+        active_posts.append(p)
 
-    return jsonify(posts), 200
+    return jsonify(active_posts), 200
+
+
+@posts_bp.route("/counts", methods=["GET"])
+def get_counts():
+    topics = ["Sincere Work", "Fun Work", "Get Together", "Party", "Earning", "Help", "Learn", "Assignment", "Exam", "Other"]
+    now = int(time.time() * 1000)
+    counts = {"all": 0}
+    
+    all_posts = list(posts_col.find({}))
+    for p in all_posts:
+        if p.get("expires_at") and p["expires_at"] < now:
+            continue
+        t = p.get("topic", "Other")
+        if t not in topics:
+            t = "Other"
+        counts[t] = counts.get(t, 0) + 1
+        counts["all"] = counts.get("all", 0) + 1
+
+    return jsonify(counts), 200
+
+
+@posts_bp.route("/<post_id>/comment", methods=["POST", "OPTIONS"])
+def add_comment(post_id):
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+
+    from bson import ObjectId
+    data = request.get_json()
+    username = data.get("username", "").strip()
+    text = data.get("text", "").strip()
+
+    if not username or not text:
+        return jsonify({"error": "Username and comment text required!"}), 400
+
+    comment = {
+        "username": username,
+        "text": text,
+        "createdAt": int(time.time() * 1000)
+    }
+
+    posts_col.update_one(
+        {"_id": ObjectId(post_id)},
+        {"$push": {"comments": comment}}
+    )
+
+    return jsonify({"message": "Comment added!", "comment": comment}), 201
 
 
 @posts_bp.route("/suggestions", methods=["GET"])
