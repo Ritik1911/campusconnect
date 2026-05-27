@@ -17,15 +17,12 @@ function logout() {
 
 let activeFilter = "all";
 let currentCommentPostId = null;
+let lastPostIds = [];
 
 // Read/Unread & Interested stored in localStorage
 function getReadPosts() { return JSON.parse(localStorage.getItem("cc_read") || "[]"); }
 function getInterestedPosts() { return JSON.parse(localStorage.getItem("cc_interested") || "[]"); }
 
-function markRead(postId) {
-  const read = getReadPosts();
-  if (!read.includes(postId)) { read.push(postId); localStorage.setItem("cc_read", JSON.stringify(read)); }
-}
 function toggleRead(postId) {
   let read = getReadPosts();
   if (read.includes(postId)) { read = read.filter(id => id !== postId); }
@@ -33,6 +30,7 @@ function toggleRead(postId) {
   localStorage.setItem("cc_read", JSON.stringify(read));
   loadPosts();
 }
+
 function toggleInterested(postId) {
   let interested = getInterestedPosts();
   if (interested.includes(postId)) { interested = interested.filter(id => id !== postId); }
@@ -41,17 +39,43 @@ function toggleInterested(postId) {
   loadPosts();
 }
 
-function showInterestedPosts() {
+// SAVED POSTS PAGE
+function showSavedPosts() {
   const interested = getInterestedPosts();
-  const modal = document.getElementById("interested-modal");
-  const list = document.getElementById("interested-list");
+  const modal = document.getElementById("saved-modal");
+  const list = document.getElementById("saved-list");
 
   if (!interested.length) {
-    list.innerHTML = `<div class="empty-state" style="padding:20px;">No interested posts yet. Mark posts with ⭐ to save them here!</div>`;
-  } else {
-    list.innerHTML = `<div class="empty-state" style="padding:10px;">You have ${interested.length} saved post(s). They are highlighted in the feed with ⭐.</div>`;
+    list.innerHTML = `<div class="empty-state" style="padding:20px;">Koi saved post nahi hai abhi. Posts mein ⭐ dabao save karne ke liye!</div>`;
+    modal.style.display = "flex";
+    return;
   }
-  modal.style.display = "flex";
+
+  // Fetch all posts and filter interested
+  fetch(`${API}/posts/all`).then(r => r.json()).then(posts => {
+    const saved = posts.filter(p => interested.includes(p._id));
+    if (!saved.length) {
+      list.innerHTML = `<div class="empty-state" style="padding:20px;">Saved posts expire ho gayi hain.</div>`;
+    } else {
+      list.innerHTML = saved.map(p => `
+        <div class="post-card post-interested" style="margin-bottom:12px;">
+          <div class="post-card-header">
+            <div class="post-topic-badge">${emoji(p.topic)} ${p.topic}</div>
+            <div class="post-meta">${timeAgo(p.createdAt)}</div>
+          </div>
+          <div class="post-title">${esc(p.title)}</div>
+          <div class="post-desc">${esc(p.description)}</div>
+          <div class="post-footer">
+            <div class="post-author">By <span>@${p.username}</span> · ${p.stream}</div>
+            <button class="post-action-btn btn-interested-active" onclick="toggleInterested('${p._id}');showSavedPosts();">⭐ Remove</button>
+          </div>
+        </div>`).join("");
+    }
+    modal.style.display = "flex";
+  }).catch(() => {
+    list.innerHTML = `<div class="empty-state">Posts load nahi ho payi.</div>`;
+    modal.style.display = "flex";
+  });
 }
 
 // FILTER
@@ -83,9 +107,13 @@ async function loadCounts() {
     };
     for (const [topic, elId] of Object.entries(map)) {
       const el = document.getElementById(elId);
-      if (el && counts[topic]) {
-        el.textContent = counts[topic];
-        el.style.display = "inline-flex";
+      if (el) {
+        if (counts[topic] && counts[topic] > 0) {
+          el.textContent = counts[topic];
+          el.style.display = "inline-flex";
+        } else {
+          el.style.display = "none";
+        }
       }
     }
   } catch {}
@@ -100,12 +128,10 @@ async function loadSuggestions() {
     { topic: "Earning", title: "Explore freelance opportunities on campus" },
     { topic: "Get Together", title: "Plan a meetup with students from your building" },
   ];
-
   try {
     const res = await fetch(`${API}/posts/suggestions?username=${currentUser.username}`);
     const data = await res.json();
     const tips = data.length ? data : staticTips;
-
     box.innerHTML = tips.slice(0, 4).map(t => `
       <div class="suggestion-card">
         <div class="suggestion-tag">💡 ${t.topic}</div>
@@ -120,10 +146,10 @@ async function loadSuggestions() {
   }
 }
 
-// POSTS
-async function loadPosts() {
+// POSTS — Smart refresh (only update if new posts)
+async function loadPosts(silent = false) {
   const feed = document.getElementById("posts-feed");
-  feed.innerHTML = `<div class="empty-state">Loading posts...</div>`;
+  if (!silent) feed.innerHTML = `<div class="empty-state">Loading posts...</div>`;
 
   try {
     const url = activeFilter === "all"
@@ -132,6 +158,11 @@ async function loadPosts() {
 
     const res = await fetch(url);
     const posts = await res.json();
+
+    // Smart refresh: only re-render if posts changed
+    const newIds = posts.map(p => p._id).join(",");
+    if (silent && newIds === lastPostIds.join(",")) return; // no change
+    lastPostIds = posts.map(p => p._id);
 
     if (!posts.length) {
       feed.innerHTML = `<div class="empty-state">No posts yet in this category. Be the first to post! 🚀</div>`;
@@ -151,7 +182,7 @@ async function loadPosts() {
         <div class="post-card-header">
           <div class="post-topic-badge">${emoji(p.topic)} ${p.topic}</div>
           <div style="display:flex;align-items:center;gap:8px;">
-            ${p.expires_at ? `<span class="post-expiry">⏰ Expires ${timeAgo(p.expires_at)}</span>` : ''}
+            ${p.expires_at ? `<span class="post-expiry">⏰ ${timeLeft(p.expires_at)}</span>` : ''}
             <div class="post-meta">${timeAgo(p.createdAt)}</div>
           </div>
         </div>
@@ -178,7 +209,7 @@ async function loadPosts() {
     }).join("");
 
   } catch {
-    feed.innerHTML = `<div class="empty-state">❌ Could not load posts. Is the backend running?</div>`;
+    if (!silent) feed.innerHTML = `<div class="empty-state">❌ Could not load posts.</div>`;
   }
 }
 
@@ -186,7 +217,7 @@ async function loadPosts() {
 function openCommentModal(postId) {
   currentCommentPostId = postId;
   document.getElementById("comment-input").value = "";
-  document.getElementById("comments-list").innerHTML = `<div class="empty-state">Loading comments...</div>`;
+  document.getElementById("comments-list").innerHTML = `<div class="empty-state">Loading...</div>`;
   document.getElementById("comment-modal").style.display = "flex";
   loadComments(postId);
 }
@@ -203,7 +234,6 @@ async function loadComments(postId) {
     const post = posts.find(p => p._id === postId);
     const comments = post ? (post.comments || []) : [];
     const list = document.getElementById("comments-list");
-
     if (!comments.length) {
       list.innerHTML = `<div class="empty-state" style="padding:10px;">No comments yet. Be the first!</div>`;
       return;
@@ -221,9 +251,7 @@ async function loadComments(postId) {
 
 async function submitComment() {
   const text = document.getElementById("comment-input").value.trim();
-  if (!text) return;
-  if (!currentCommentPostId) return;
-
+  if (!text || !currentCommentPostId) return;
   try {
     const res = await fetch(`${API}/posts/${currentCommentPostId}/comment`, {
       method: "POST",
@@ -234,6 +262,7 @@ async function submitComment() {
       document.getElementById("comment-input").value = "";
       loadComments(currentCommentPostId);
       loadCounts();
+      loadPosts(true);
     }
   } catch {}
 }
@@ -243,7 +272,6 @@ async function showContact(username) {
   try {
     const res = await fetch(`${API}/auth/user/${username}`);
     const u = await res.json();
-
     const modal = document.createElement("div");
     modal.className = "modal-overlay";
     modal.innerHTML = `
@@ -259,9 +287,7 @@ async function showContact(username) {
       </div>`;
     modal.addEventListener("click", e => { if (e.target === modal) modal.remove(); });
     document.body.appendChild(modal);
-  } catch {
-    alert("Could not load contact info!");
-  }
+  } catch { alert("Could not load contact info!"); }
 }
 
 // HELPERS
@@ -269,7 +295,6 @@ function emoji(topic) {
   const map = { "Sincere Work":"📚","Fun Work":"🎮","Get Together":"🤝","Party":"🎉","Earning":"💰","Help":"🆘","Learn":"🧠","Assignment":"📝","Exam":"📊","Other":"💬" };
   return map[topic] || "💬";
 }
-
 function timeAgo(ts) {
   const mins = Math.floor((Date.now() - ts) / 60000);
   if (mins < 1) return "Just now";
@@ -278,13 +303,20 @@ function timeAgo(ts) {
   if (hrs < 24) return `${hrs}h ago`;
   return `${Math.floor(hrs / 24)}d ago`;
 }
-
+function timeLeft(ts) {
+  const mins = Math.floor((ts - Date.now()) / 60000);
+  if (mins < 0) return "Expired";
+  if (mins < 60) return `${mins}m left`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h left`;
+  return `${Math.floor(hrs / 24)}d left`;
+}
 function esc(s) {
   return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
 
-// AUTO REFRESH — every 15 seconds
-setInterval(() => { loadPosts(); loadCounts(); }, 15000);
+// SMART AUTO REFRESH — poll every 10 seconds, only re-render if new posts
+setInterval(() => { loadPosts(true); loadCounts(); }, 10000);
 
 // Init
 loadSuggestions();

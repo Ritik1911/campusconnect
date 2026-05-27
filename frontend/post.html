@@ -62,7 +62,7 @@
         <div class="form-group">
           <label>Preferred Contact Method</label>
           <div class="contact-options">
-            <div class="contact-option" data-val="profile" onclick="selectContact(this)">
+            <div class="contact-option selected" data-val="profile" onclick="selectContact(this)">
               <div class="contact-icon">👤</div>
               <div class="contact-label">View Profile</div>
               <div class="contact-sub">Share your profile info</div>
@@ -87,7 +87,7 @@
         </div>
 
         <div class="form-group">
-          <label>⏰ How long should this post stay? *</label>
+          <label>⏰ Post Kitne Time Ke Liye Rakhni Hai? *</label>
           <div class="expiry-options">
             <div class="expiry-option selected" data-val="0" onclick="selectExpiry(this)">🔁<br/>Forever</div>
             <div class="expiry-option" data-val="1" onclick="selectExpiry(this)">1<br/>Hour</div>
@@ -96,6 +96,18 @@
             <div class="expiry-option" data-val="24" onclick="selectExpiry(this)">1<br/>Day</div>
             <div class="expiry-option" data-val="72" onclick="selectExpiry(this)">3<br/>Days</div>
             <div class="expiry-option" data-val="168" onclick="selectExpiry(this)">1<br/>Week</div>
+            <div class="expiry-option" data-val="custom" onclick="selectExpiry(this)">✏️<br/>Custom</div>
+          </div>
+          <div id="custom-expiry-group" style="display:none;margin-top:12px;">
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+              <input type="number" id="custom-expiry-val" min="1" max="999" placeholder="e.g. 2" style="width:80px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px;color:var(--text);"/>
+              <select id="custom-expiry-unit" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px;color:var(--text);">
+                <option value="1">Minutes</option>
+                <option value="60" selected>Hours</option>
+                <option value="1440">Days</option>
+              </select>
+              <span style="color:var(--text-muted);font-size:0.85rem;">ke baad expire hogi</span>
+            </div>
           </div>
           <input type="hidden" id="expires-in" value="0"/>
         </div>

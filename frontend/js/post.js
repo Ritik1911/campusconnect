@@ -32,7 +32,15 @@ function selectContact(el) {
 function selectExpiry(el) {
   document.querySelectorAll(".expiry-option").forEach(e => e.classList.remove("selected"));
   el.classList.add("selected");
-  document.getElementById("expires-in").value = el.dataset.val;
+  const val = el.dataset.val;
+  const customGroup = document.getElementById("custom-expiry-group");
+  if (val === "custom") {
+    customGroup.style.display = "block";
+    document.getElementById("expires-in").value = "custom";
+  } else {
+    customGroup.style.display = "none";
+    document.getElementById("expires-in").value = val;
+  }
 }
 
 document.getElementById("post-title").addEventListener("input", function () {
@@ -54,10 +62,21 @@ async function submitPost() {
   const title = document.getElementById("post-title").value.trim();
   const desc = document.getElementById("post-desc").value.trim();
   const contact = document.getElementById("contact-pref").value;
-  const expiresIn = document.getElementById("expires-in").value;
   const customTopic = document.getElementById("custom-topic").value.trim();
-
   const finalTopic = selectedTopic === "Other" && customTopic ? customTopic : selectedTopic;
+
+  let expiresIn = 0;
+  const expiresVal = document.getElementById("expires-in").value;
+  if (expiresVal === "custom") {
+    const customVal = parseInt(document.getElementById("custom-expiry-val").value);
+    const unit = parseInt(document.getElementById("custom-expiry-unit").value);
+    if (!customVal || customVal < 1) return showErr("Custom expiry mein valid number daalo!");
+    // convert to hours
+    expiresIn = Math.round((customVal * unit) / 60);
+    if (expiresIn < 1) expiresIn = 1;
+  } else {
+    expiresIn = parseInt(expiresVal);
+  }
 
   if (!finalTopic) return showErr("Please select a topic!");
   if (!title) return showErr("Please write a post title!");
@@ -76,7 +95,7 @@ async function submitPost() {
         title,
         description: desc,
         contact,
-        expires_in: parseInt(expiresIn),
+        expires_in: expiresIn,
       }),
     });
     const result = await res.json();
@@ -89,11 +108,10 @@ async function submitPost() {
     const successEl = document.getElementById("post-success");
     successEl.textContent = "✅ Post published! Redirecting to dashboard...";
     successEl.classList.add("show");
-
     setTimeout(() => window.location.href = "dashboard.html", 1500);
 
   } catch {
-    showErr("Cannot connect to server! Is the backend running?");
+    showErr("Cannot connect to server!");
   } finally {
     btn.textContent = "🚀 Publish Post";
     btn.disabled = false;
