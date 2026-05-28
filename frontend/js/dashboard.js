@@ -46,7 +46,7 @@ function showSavedPosts() {
   const list = document.getElementById("saved-list");
 
   if (!interested.length) {
-    list.innerHTML = `<div class="empty-state" style="padding:20px;">Koi saved post nahi hai abhi. Posts mein ⭐ dabao save karne ke liye!</div>`;
+    list.innerHTML = `<div class="empty-state" style="padding:20px;">No saved posts yet. Press ⭐ on any post to save it here!</div>`;
     modal.style.display = "flex";
     return;
   }
@@ -55,7 +55,7 @@ function showSavedPosts() {
   fetch(`${API}/posts/all`).then(r => r.json()).then(posts => {
     const saved = posts.filter(p => interested.includes(p._id));
     if (!saved.length) {
-      list.innerHTML = `<div class="empty-state" style="padding:20px;">Saved posts expire ho gayi hain.</div>`;
+      list.innerHTML = `<div class="empty-state" style="padding:20px;">Your saved posts have expired.</div>`;
     } else {
       list.innerHTML = saved.map(p => `
         <div class="post-card post-interested" style="margin-bottom:12px;">
@@ -73,7 +73,7 @@ function showSavedPosts() {
     }
     modal.style.display = "flex";
   }).catch(() => {
-    list.innerHTML = `<div class="empty-state">Posts load nahi ho payi.</div>`;
+    list.innerHTML = `<div class="empty-state">Could not load posts.</div>`;
     modal.style.display = "flex";
   });
 }

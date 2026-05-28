@@ -4,6 +4,12 @@ import time
 
 posts_bp = Blueprint("posts", __name__)
 
+VALID_TOPICS = ["Sincere Work", "Fun Work", "Get Together", "Party", "Earning", "Help", "Learn", "Assignment", "Exam", "Other"]
+
+def normalize_topic(topic):
+    """If topic is not a standard one, keep it as-is (custom topic)."""
+    return topic.strip() if topic else "Other"
+
 
 @posts_bp.route("/create", methods=["POST", "OPTIONS"])
 def create_post():
@@ -23,7 +29,6 @@ def create_post():
     if not user:
         return jsonify({"error": "User not found!"}), 404
 
-    # Post expiry time (in hours, 0 = forever)
     expires_in = data.get("expires_in", 0)
     expires_at = None
     if expires_in and int(expires_in) > 0:
@@ -37,7 +42,7 @@ def create_post():
         "semester": user["semester"],
         "building": user["building"],
         "location": user["location"],
-        "topic": data["topic"],
+        "topic": normalize_topic(data["topic"]),
         "title": data["title"],
         "description": data["description"],
         "contact": data.get("contact", "profile"),
@@ -48,47 +53,50 @@ def create_post():
 
     result = posts_col.insert_one(post)
     post["_id"] = str(result.inserted_id)
-
     return jsonify({"message": "Post created!", "post": post}), 201
 
 
 @posts_bp.route("/all", methods=["GET"])
 def get_posts():
     topic = request.args.get("topic")
-    query = {}
-    if topic and topic != "all":
-        query["topic"] = topic
-
     now = int(time.time() * 1000)
-    posts = list(posts_col.find(query).sort("createdAt", -1).limit(100))
 
-    # Filter expired posts
+    all_posts = list(posts_col.find({}).sort("createdAt", -1).limit(200))
+
     active_posts = []
-    for p in posts:
+    for p in all_posts:
         p["_id"] = str(p["_id"])
         if p.get("expires_at") and p["expires_at"] < now:
             continue
         active_posts.append(p)
+
+    if topic and topic != "all":
+        if topic == "Other":
+            # Show posts whose topic is not in standard list (custom topics) AND posts with topic "Other"
+            active_posts = [p for p in active_posts if p.get("topic") not in VALID_TOPICS or p.get("topic") == "Other"]
+        else:
+            active_posts = [p for p in active_posts if p.get("topic") == topic]
 
     return jsonify(active_posts), 200
 
 
 @posts_bp.route("/counts", methods=["GET"])
 def get_counts():
-    topics = ["Sincere Work", "Fun Work", "Get Together", "Party", "Earning", "Help", "Learn", "Assignment", "Exam", "Other"]
     now = int(time.time() * 1000)
-    counts = {"all": 0}
-    
+    counts = {}
+
     all_posts = list(posts_col.find({}))
+    total = 0
     for p in all_posts:
         if p.get("expires_at") and p["expires_at"] < now:
             continue
         t = p.get("topic", "Other")
-        if t not in topics:
-            t = "Other"
-        counts[t] = counts.get(t, 0) + 1
-        counts["all"] = counts.get("all", 0) + 1
+        # Custom topics count under "Other"
+        key = t if t in VALID_TOPICS else "Other"
+        counts[key] = counts.get(key, 0) + 1
+        total += 1
 
+    counts["all"] = total
     return jsonify(counts), 200
 
 
@@ -115,7 +123,6 @@ def add_comment(post_id):
         {"_id": ObjectId(post_id)},
         {"$push": {"comments": comment}}
     )
-
     return jsonify({"message": "Comment added!", "comment": comment}), 201
 
 
@@ -128,17 +135,12 @@ def suggestions():
         {"topic": "Earning", "title": "Explore freelance opportunities on campus"},
         {"topic": "Help", "title": "Help someone or get help from your community"},
     ]
-
     if username:
         user = users_col.find_one({"username": username})
         if user:
             recent = list(posts_col.find(
                 {"stream": user["stream"], "username": {"$ne": username}}
             ).sort("createdAt", -1).limit(4))
-
             if recent:
-                tips = [{"topic": p["topic"], "title": p["title"], "username": p["username"]} for p in recent]
-                for p in tips:
-                    p["_id"] = str(p.get("_id", ""))
-
+                tips = [{"topic": p["topic"], "title": p["title"]} for p in recent]
     return jsonify(tips), 200

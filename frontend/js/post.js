@@ -70,7 +70,7 @@ async function submitPost() {
   if (expiresVal === "custom") {
     const customVal = parseInt(document.getElementById("custom-expiry-val").value);
     const unit = parseInt(document.getElementById("custom-expiry-unit").value);
-    if (!customVal || customVal < 1) return showErr("Custom expiry mein valid number daalo!");
+    if (!customVal || customVal < 1) return showErr("Please enter a valid number for custom expiry!");
     // convert to hours
     expiresIn = Math.round((customVal * unit) / 60);
     if (expiresIn < 1) expiresIn = 1;
