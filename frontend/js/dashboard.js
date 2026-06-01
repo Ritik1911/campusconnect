@@ -19,27 +19,75 @@ let activeFilter = "all";
 let currentCommentPostId = null;
 let lastPostIds = [];
 
-// Read/Unread & Interested stored in localStorage
 function getReadPosts() { return JSON.parse(localStorage.getItem("cc_read") || "[]"); }
 function getInterestedPosts() { return JSON.parse(localStorage.getItem("cc_interested") || "[]"); }
 
 function toggleRead(postId) {
   let read = getReadPosts();
-  if (read.includes(postId)) { read = read.filter(id => id !== postId); }
-  else { read.push(postId); }
+  if (read.includes(postId)) read = read.filter(id => id !== postId);
+  else read.push(postId);
   localStorage.setItem("cc_read", JSON.stringify(read));
   loadPosts();
+  loadReadSection();
 }
 
 function toggleInterested(postId) {
   let interested = getInterestedPosts();
-  if (interested.includes(postId)) { interested = interested.filter(id => id !== postId); }
-  else { interested.push(postId); }
+  if (interested.includes(postId)) interested = interested.filter(id => id !== postId);
+  else interested.push(postId);
   localStorage.setItem("cc_interested", JSON.stringify(interested));
   loadPosts();
 }
 
-// SAVED POSTS PAGE
+// READ SECTION
+function toggleReadSection() {
+  const sec = document.getElementById("read-section");
+  const isHidden = sec.style.display === "none";
+  sec.style.display = isHidden ? "block" : "none";
+  if (isHidden) loadReadSection();
+}
+
+async function loadReadSection() {
+  const feed = document.getElementById("read-posts-feed");
+  const readIds = getReadPosts();
+
+  if (!readIds.length) {
+    feed.innerHTML = `<div class="empty-state">No posts marked as read yet.</div>`;
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API}/posts/all`);
+    const posts = await res.json();
+    const readPosts = posts.filter(p => readIds.includes(p._id));
+
+    if (!readPosts.length) {
+      feed.innerHTML = `<div class="empty-state">Your read posts have expired or been removed.</div>`;
+      return;
+    }
+
+    feed.innerHTML = readPosts.map(p => `
+      <div class="post-card post-read">
+        <div class="post-card-header">
+          <div class="post-topic-badge">${emoji(p.topic)} ${p.topic}</div>
+          <div class="post-meta">${timeAgo(p.createdAt)}</div>
+        </div>
+        <div class="post-title">${esc(p.title)}</div>
+        <div class="post-desc">${esc(p.description)}</div>
+        <div class="post-footer">
+          <div class="post-author">By <span>@${p.username}</span> · ${p.stream} · ${p.year}</div>
+          <div class="post-actions">
+            <button class="post-action-btn btn-unread" onclick="toggleRead('${p._id}')">↩ Mark Unread</button>
+            <button class="post-contact-btn" onclick="showContact('${p.username}')">📞 Contact</button>
+          </div>
+        </div>
+      </div>`).join("");
+  } catch {
+    feed.innerHTML = `<div class="empty-state">Could not load read posts.</div>`;
+  }
+}
+
+// SAVED POSTS MODAL
 function showSavedPosts() {
   const interested = getInterestedPosts();
   const modal = document.getElementById("saved-modal");
@@ -51,7 +99,6 @@ function showSavedPosts() {
     return;
   }
 
-  // Fetch all posts and filter interested
   fetch(`${API}/posts/all`).then(r => r.json()).then(posts => {
     const saved = posts.filter(p => interested.includes(p._id));
     if (!saved.length) {
@@ -67,7 +114,10 @@ function showSavedPosts() {
           <div class="post-desc">${esc(p.description)}</div>
           <div class="post-footer">
             <div class="post-author">By <span>@${p.username}</span> · ${p.stream}</div>
-            <button class="post-action-btn btn-interested-active" onclick="toggleInterested('${p._id}');showSavedPosts();">⭐ Remove</button>
+            <div class="post-actions">
+              <button class="post-action-btn btn-interested-active" onclick="toggleInterested('${p._id}');showSavedPosts();">⭐ Remove</button>
+              <button class="post-contact-btn" onclick="showContact('${p.username}')">📞 Contact</button>
+            </div>
           </div>
         </div>`).join("");
     }
@@ -146,7 +196,7 @@ async function loadSuggestions() {
   }
 }
 
-// POSTS — Smart refresh (only update if new posts)
+// POSTS
 async function loadPosts(silent = false) {
   const feed = document.getElementById("posts-feed");
   if (!silent) feed.innerHTML = `<div class="empty-state">Loading posts...</div>`;
@@ -159,9 +209,8 @@ async function loadPosts(silent = false) {
     const res = await fetch(url);
     const posts = await res.json();
 
-    // Smart refresh: only re-render if posts changed
     const newIds = posts.map(p => p._id).join(",");
-    if (silent && newIds === lastPostIds.join(",")) return; // no change
+    if (silent && newIds === lastPostIds.join(",")) return;
     lastPostIds = posts.map(p => p._id);
 
     if (!posts.length) {
@@ -189,9 +238,7 @@ async function loadPosts(silent = false) {
         <div class="post-title">${esc(p.title)}</div>
         <div class="post-desc">${esc(p.description)}</div>
         <div class="post-footer">
-          <div class="post-author">
-            By <span>@${p.username}</span> · ${p.stream} · ${p.year} · ${p.building}
-          </div>
+          <div class="post-author">By <span>@${p.username}</span> · ${p.stream} · ${p.year} · ${p.building}</div>
           <div class="post-actions">
             <button class="post-action-btn ${isRead ? 'btn-read' : 'btn-unread'}" onclick="toggleRead('${p._id}')">
               ${isRead ? '✅ Read' : '👁 Unread'}
@@ -221,12 +268,10 @@ function openCommentModal(postId) {
   document.getElementById("comment-modal").style.display = "flex";
   loadComments(postId);
 }
-
 function closeCommentModal() {
   document.getElementById("comment-modal").style.display = "none";
   currentCommentPostId = null;
 }
-
 async function loadComments(postId) {
   try {
     const res = await fetch(`${API}/posts/all`);
@@ -248,7 +293,6 @@ async function loadComments(postId) {
     document.getElementById("comments-list").innerHTML = `<div class="empty-state">Could not load comments.</div>`;
   }
 }
-
 async function submitComment() {
   const text = document.getElementById("comment-input").value.trim();
   if (!text || !currentCommentPostId) return;
@@ -267,7 +311,7 @@ async function submitComment() {
   } catch {}
 }
 
-// CONTACT MODAL
+// CONTACT
 async function showContact(username) {
   try {
     const res = await fetch(`${API}/auth/user/${username}`);
@@ -315,7 +359,7 @@ function esc(s) {
   return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
 
-// SMART AUTO REFRESH — poll every 10 seconds, only re-render if new posts
+// Smart auto refresh
 setInterval(() => { loadPosts(true); loadCounts(); }, 10000);
 
 // Init
