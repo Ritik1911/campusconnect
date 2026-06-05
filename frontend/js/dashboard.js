@@ -79,6 +79,7 @@ async function loadReadSection() {
           <div class="post-actions">
             <button class="post-action-btn btn-unread" onclick="toggleRead('${p._id}')">↩ Mark Unread</button>
             <button class="post-contact-btn" onclick="showContact('${p.username}')">📞 Contact</button>
+            <button class="post-action-btn" style="border-color:#ff6666;color:#ff6666;" onclick="reportPost('${p._id}')">⚠️ Report</button>
           </div>
         </div>
       </div>`).join("");
@@ -117,6 +118,7 @@ function showSavedPosts() {
             <div class="post-actions">
               <button class="post-action-btn btn-interested-active" onclick="toggleInterested('${p._id}');showSavedPosts();">⭐ Remove</button>
               <button class="post-contact-btn" onclick="showContact('${p.username}')">📞 Contact</button>
+            <button class="post-action-btn" style="border-color:#ff6666;color:#ff6666;" onclick="reportPost('${p._id}')">⚠️ Report</button>
             </div>
           </div>
         </div>`).join("");
@@ -250,6 +252,7 @@ async function loadPosts(silent = false) {
               💬 ${commentCount > 0 ? commentCount : ''} Comment
             </button>
             <button class="post-contact-btn" onclick="showContact('${p.username}')">📞 Contact</button>
+            <button class="post-action-btn" style="border-color:#ff6666;color:#ff6666;" onclick="reportPost('${p._id}')">⚠️ Report</button>
           </div>
         </div>
       </div>`;
@@ -366,3 +369,120 @@ setInterval(() => { loadPosts(true); loadCounts(); }, 10000);
 loadSuggestions();
 loadPosts();
 loadCounts();
+
+// ── ROLE & ADMIN FEATURES ──────────────────────────────────────
+
+let myRole = "user";
+
+async function loadMyRole() {
+  try {
+    const res = await fetch(`${API}/admin/my-role?username=${currentUser.username}`);
+    const data = await res.json();
+    myRole = data.role;
+
+    // Show admin link in navbar
+    if (myRole === "admin" || myRole === "superadmin") {
+      const adminLink = document.getElementById("admin-nav-link");
+      if (adminLink) adminLink.style.display = "inline-block";
+    }
+
+    // Show announcements
+    loadAnnouncements();
+  } catch {}
+}
+
+async function loadAnnouncements() {
+  try {
+    const res = await fetch(`${API}/admin/announcements`);
+    const anns = await res.json();
+    const section = document.getElementById("announcements-section");
+    const feed = document.getElementById("announcements-feed");
+
+    if (!anns.length) return;
+    section.style.display = "block";
+    feed.innerHTML = anns.map(a => `
+      <div class="announcement-card">
+        <div class="ann-header">
+          <span class="ann-badge ${a.role === 'superadmin' ? 'superadmin-badge' : 'admin-badge'}">
+            ${a.role === 'superadmin' ? '👑 Super Admin' : '🛡️ Admin'}
+          </span>
+          <span style="font-weight:700;font-size:1rem;">${esc(a.title)}</span>
+          <span class="post-meta">${timeAgo(a.createdAt)}</span>
+        </div>
+        <div style="color:var(--text);margin-top:8px;">${esc(a.message)}</div>
+        <div style="font-size:0.78rem;color:var(--text-muted);margin-top:6px;">Posted by @${esc(a.username)}</div>
+      </div>`).join("");
+  } catch {}
+}
+
+async function reportPost(postId) {
+  const reason = prompt("Why are you reporting this post?", "Inappropriate content");
+  if (!reason) return;
+  try {
+    const res = await fetch(`${API}/admin/report-post/${postId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: currentUser.username, reason })
+    });
+    const data = await res.json();
+    alert(data.message || "Reported!");
+  } catch { alert("Error reporting post!"); }
+}
+
+// Override loadPosts to add role badges + report button + ban check
+const _origLoadPosts = loadPosts;
+
+// ── NOTIFICATIONS ─────────────────────────────────────────────
+async function loadNotifCount() {
+  try {
+    const res = await fetch(`${API}/admin/notifications/count?username=${currentUser.username}`);
+    const data = await res.json();
+    const badge = document.getElementById("notif-count");
+    if (badge) {
+      badge.textContent = data.count || "";
+      badge.style.display = data.count > 0 ? "inline-flex" : "none";
+    }
+  } catch {}
+}
+
+async function showNotifications() {
+  try {
+    const res = await fetch(`${API}/admin/notifications?username=${currentUser.username}`);
+    const notifs = await res.json();
+
+    // Mark as read
+    fetch(`${API}/admin/notifications/read`, {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ username: currentUser.username })
+    });
+
+    const modal = document.createElement("div");
+    modal.className = "modal-overlay";
+    modal.innerHTML = `
+      <div class="modal-card" style="max-width:480px;width:95%;max-height:80vh;overflow-y:auto;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <h3>🔔 Notifications</h3>
+          <button class="btn-logout" onclick="this.closest('.modal-overlay').remove()">✕</button>
+        </div>
+        ${!notifs.length
+          ? `<div class="empty-state">No notifications yet.</div>`
+          : notifs.map(n => `
+            <div style="padding:12px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:flex-start;">
+              <div style="font-size:1.2rem;">${n.type==="comment"?"💬":n.type==="warning"?"⚠️":n.type==="ban"?"🚫":n.type==="unban"?"✅":n.type==="role"?"🛡️":"🔔"}</div>
+              <div style="flex:1;">
+                <div style="color:var(--text);font-size:0.88rem;">${esc(n.message)}</div>
+                <div style="color:var(--text-muted);font-size:0.75rem;margin-top:3px;">${timeAgo(n.at)}</div>
+              </div>
+            </div>`).join("")}
+      </div>`;
+    modal.addEventListener("click", e => { if(e.target===modal) modal.remove(); });
+    document.body.appendChild(modal);
+
+    const badge = document.getElementById("notif-count");
+    if (badge) badge.style.display = "none";
+  } catch {}
+}
+
+// Poll notifications every 30 seconds
+setInterval(loadNotifCount, 30000);
+loadNotifCount();
