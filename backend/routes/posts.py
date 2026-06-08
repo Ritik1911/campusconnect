@@ -119,10 +119,21 @@ def add_comment(post_id):
         "createdAt": int(time.time() * 1000)
     }
 
+    post = posts_col.find_one({"_id": ObjectId(post_id)})
     posts_col.update_one(
         {"_id": ObjectId(post_id)},
         {"$push": {"comments": comment}}
     )
+    # Notify post owner
+    if post and post.get("username") and post["username"] != username:
+        from config import notifs_col
+        notifs_col.insert_one({
+            "to": post["username"],
+            "message": f"@{username} commented on your post: '{post.get('title', '')}'",
+            "type": "comment",
+            "read": False,
+            "at": int(time.time() * 1000)
+        })
     return jsonify({"message": "Comment added!", "comment": comment}), 201
 
 

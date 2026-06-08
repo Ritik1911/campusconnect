@@ -5,82 +5,270 @@ import time, datetime
 
 admin_bp = Blueprint("admin", __name__)
 
-# ── ROLE HELPERS ──────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+#  PERMISSION DEFINITIONS
+# ══════════════════════════════════════════════════════════════
+ALL_PERMISSIONS = [
+    "manage_posts",       # View/delete any post
+    "manage_users",       # View user list
+    "ban_users",          # Ban/unban users
+    "warn_users",         # Issue warnings
+    "view_reports",       # See reported posts
+    "delete_reports",     # Delete reported posts
+    "post_announcements", # Post platform announcements
+    "view_stats",         # See platform statistics
+    "create_admin",       # Create child admins/partners
+    "view_audit",         # View audit log
+]
+
+PERMISSION_LABELS = {
+    "manage_posts":       "📝 Manage Posts",
+    "manage_users":       "👥 View Users",
+    "ban_users":          "🚫 Ban/Unban Users",
+    "warn_users":         "⚠️ Warn Users",
+    "view_reports":       "🔎 View Reports",
+    "delete_reports":     "🗑️ Delete Reported Posts",
+    "post_announcements": "📢 Post Announcements",
+    "view_stats":         "📊 View Statistics",
+    "create_admin":       "👑 Create Sub-Admins",
+    "view_audit":         "📋 View Audit Log",
+}
+
+# ══════════════════════════════════════════════════════════════
+#  HELPERS
+# ══════════════════════════════════════════════════════════════
+def is_superadmin(username):
+    return username in SUPER_ADMINS
+
+def get_user(username):
+    return users_col.find_one({"username": username})
+
+def get_permissions(username):
+    """Return list of permissions for a user."""
+    if is_superadmin(username):
+        return ALL_PERMISSIONS[:]
+    user = get_user(username)
+    if not user:
+        return []
+    return user.get("permissions", [])
+
+def has_permission(username, perm):
+    return perm in get_permissions(username)
+
 def get_role(username):
-    if username in SUPER_ADMINS:
+    if is_superadmin(username):
         return "superadmin"
-    user = users_col.find_one({"username": username})
-    if user:
-        role = user.get("role", "user")
-        # If DB says superadmin, add to runtime list
-        if role == "superadmin" and username not in SUPER_ADMINS:
-            SUPER_ADMINS.append(username)
-        return role
-    return "user"
-
-def require_admin(username):
-    return get_role(username) in ["admin", "superadmin"]
-
-def require_superadmin(username):
-    return get_role(username) == "superadmin"
+    user = get_user(username)
+    if not user:
+        return "user"
+    return user.get("role", "user")
 
 def log_action(actor, action, target="", detail=""):
-    """Write to audit log."""
     audit_col.insert_one({
-        "actor": actor,
-        "action": action,
-        "target": target,
-        "detail": detail,
+        "actor": actor, "action": action,
+        "target": target, "detail": detail,
         "at": int(time.time() * 1000)
     })
 
 def push_notif(to_user, message, notif_type="info"):
-    """Push notification to a user."""
     notifs_col.insert_one({
-        "to": to_user,
-        "message": message,
-        "type": notif_type,
-        "read": False,
+        "to": to_user, "message": message,
+        "type": notif_type, "read": False,
         "at": int(time.time() * 1000)
     })
 
-# ── MY ROLE ───────────────────────────────────────────────────
+def get_parent(username):
+    """Get who created this admin."""
+    user = get_user(username)
+    return user.get("created_by") if user else None
+
+def propagate_permission_removal(username, removed_perms):
+    """When a permission is removed from username, remove it from all children too."""
+    # Find all admins created by username
+    children = list(users_col.find({"created_by": username}))
+    for child in children:
+        child_perms = child.get("permissions", [])
+        new_perms = [p for p in child_perms if p not in removed_perms]
+        if new_perms != child_perms:
+            users_col.update_one(
+                {"username": child["username"]},
+                {"$set": {"permissions": new_perms}}
+            )
+            push_notif(child["username"], "Some of your admin permissions have been updated.", "role")
+            # Recursively propagate down
+            propagate_permission_removal(child["username"], removed_perms)
+
+# ══════════════════════════════════════════════════════════════
+#  MY ROLE & PERMISSIONS
+# ══════════════════════════════════════════════════════════════
 @admin_bp.route("/my-role", methods=["GET"])
 def my_role():
     username = request.args.get("username", "")
-    user = users_col.find_one({"username": username})
-    warnings = warnings_col.count_documents({"username": username})
+    user = get_user(username)
+    perms = get_permissions(username)
+    role = get_role(username)
     return jsonify({
-        "role": get_role(username),
-        "warnings": warnings,
+        "role": role,
+        "permissions": perms,
+        "is_admin": role in ["admin", "superadmin"],
+        "warnings": warnings_col.count_documents({"username": username}),
         "banned": user.get("banned", False) if user else False,
-        "ban_until": user.get("ban_until") if user else None
     }), 200
 
-# ── PLATFORM STATS ────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+#  CREATE CHILD ADMIN
+# ══════════════════════════════════════════════════════════════
+@admin_bp.route("/create-admin", methods=["POST", "OPTIONS"])
+def create_admin():
+    if request.method == "OPTIONS": return jsonify({}), 200
+    data = request.get_json()
+    creator   = data.get("creator", "")
+    target    = data.get("target", "")   # existing username
+    permissions = data.get("permissions", [])
+
+    # Creator must have create_admin permission
+    if not has_permission(creator, "create_admin"):
+        return jsonify({"error": "You don't have permission to create admins!"}), 403
+
+    # Target must exist
+    target_user = get_user(target)
+    if not target_user:
+        return jsonify({"error": f"User @{target} not found!"}), 404
+
+    # Cannot grant permissions creator doesn't have
+    creator_perms = get_permissions(creator)
+    invalid = [p for p in permissions if p not in creator_perms]
+    if invalid:
+        return jsonify({"error": f"You cannot grant permissions you don't have: {', '.join(invalid)}"}), 403
+
+    # Cannot make another superadmin
+    if is_superadmin(target):
+        return jsonify({"error": "Cannot modify Super-Admin!"}), 400
+
+    users_col.update_one({"username": target}, {"$set": {
+        "role": "admin",
+        "permissions": permissions,
+        "created_by": creator,
+    }})
+    log_action(creator, "CREATE_ADMIN", target, f"Permissions: {', '.join(permissions)}")
+    push_notif(target, f"You have been granted Admin access by @{creator}!", "role")
+    return jsonify({"message": f"@{target} is now an Admin with {len(permissions)} permission(s)!"}), 200
+
+# ══════════════════════════════════════════════════════════════
+#  UPDATE PERMISSIONS
+# ══════════════════════════════════════════════════════════════
+@admin_bp.route("/update-permissions", methods=["POST", "OPTIONS"])
+def update_permissions():
+    if request.method == "OPTIONS": return jsonify({}), 200
+    data = request.get_json()
+    updater     = data.get("updater", "")
+    target      = data.get("target", "")
+    new_perms   = data.get("permissions", [])
+
+    if is_superadmin(target):
+        return jsonify({"error": "Cannot modify Super-Admin!"}), 400
+
+    target_user = get_user(target)
+    if not target_user:
+        return jsonify({"error": "User not found!"}), 404
+
+    # Only superadmin OR the direct parent can update
+    target_parent = target_user.get("created_by", "")
+    if not is_superadmin(updater) and updater != target_parent:
+        return jsonify({"error": "You can only update permissions of admins you created!"}), 403
+
+    # Cannot grant what updater doesn't have
+    updater_perms = get_permissions(updater)
+    invalid = [p for p in new_perms if p not in updater_perms]
+    if invalid:
+        return jsonify({"error": f"You cannot grant: {', '.join(invalid)}"}), 403
+
+    old_perms = target_user.get("permissions", [])
+    removed   = [p for p in old_perms if p not in new_perms]
+
+    users_col.update_one({"username": target}, {"$set": {"permissions": new_perms}})
+
+    # Propagate removals down the tree
+    if removed:
+        propagate_permission_removal(target, removed)
+
+    log_action(updater, "UPDATE_PERMISSIONS", target, f"New: {', '.join(new_perms)}")
+    push_notif(target, "Your admin permissions have been updated.", "role")
+    return jsonify({"message": f"Permissions updated for @{target}!"}), 200
+
+# ══════════════════════════════════════════════════════════════
+#  REVOKE ADMIN
+# ══════════════════════════════════════════════════════════════
+@admin_bp.route("/revoke-admin", methods=["POST", "OPTIONS"])
+def revoke_admin():
+    if request.method == "OPTIONS": return jsonify({}), 200
+    data = request.get_json()
+    revoker = data.get("revoker", "")
+    target  = data.get("target", "")
+
+    if is_superadmin(target):
+        return jsonify({"error": "Cannot revoke Super-Admin!"}), 400
+
+    target_user = get_user(target)
+    if not target_user:
+        return jsonify({"error": "User not found!"}), 404
+
+    target_parent = target_user.get("created_by", "")
+    if not is_superadmin(revoker) and revoker != target_parent:
+        return jsonify({"error": "You can only revoke admins you created!"}), 403
+
+    old_perms = target_user.get("permissions", [])
+    users_col.update_one({"username": target}, {"$set": {
+        "role": "user", "permissions": [], "created_by": None
+    }})
+    propagate_permission_removal(target, old_perms)
+    log_action(revoker, "REVOKE_ADMIN", target, "All permissions removed")
+    push_notif(target, "Your admin access has been revoked.", "role")
+    return jsonify({"message": f"@{target} admin access revoked!"}), 200
+
+# ══════════════════════════════════════════════════════════════
+#  GET ADMIN TREE (who created whom)
+# ══════════════════════════════════════════════════════════════
+@admin_bp.route("/admin-tree", methods=["GET"])
+def admin_tree():
+    username = request.args.get("username", "")
+    if not is_superadmin(username) and not has_permission(username, "manage_users"):
+        return jsonify({"error": "Unauthorized"}), 403
+
+    if is_superadmin(username):
+        # Super admin sees full tree
+        admins = list(users_col.find({"role": "admin"}, {"password": 0, "_id": 0, "plain_password": 0}))
+    else:
+        # Admin sees only their subtree
+        admins = list(users_col.find({"created_by": username}, {"password": 0, "_id": 0, "plain_password": 0}))
+
+    for a in admins:
+        a["warning_count"] = warnings_col.count_documents({"username": a["username"]})
+
+    return jsonify(admins), 200
+
+# ══════════════════════════════════════════════════════════════
+#  PLATFORM STATS
+# ══════════════════════════════════════════════════════════════
 @admin_bp.route("/stats", methods=["GET"])
 def get_stats():
     username = request.args.get("username", "")
-    if not require_admin(username):
+    if not has_permission(username, "view_stats"):
         return jsonify({"error": "Unauthorized"}), 403
 
     now = int(time.time() * 1000)
     today_start = now - (24 * 3600 * 1000)
-    week_start  = now - (7 * 24 * 3600 * 1000)
 
-    total_users   = users_col.count_documents({})
-    total_posts   = posts_col.count_documents({})
-    total_admins  = users_col.count_documents({"role": "admin"})
-    total_banned  = users_col.count_documents({"banned": True})
+    total_users    = users_col.count_documents({})
+    total_posts    = posts_col.count_documents({})
+    total_admins   = users_col.count_documents({"role": "admin"})
+    total_banned   = users_col.count_documents({"banned": True})
     reported_posts = posts_col.count_documents({"reports": {"$exists": True, "$ne": []}})
-    posts_today   = posts_col.count_documents({"createdAt": {"$gte": today_start}})
-    users_today   = users_col.count_documents({"joined_at": {"$gte": today_start}})
+    posts_today    = posts_col.count_documents({"createdAt": {"$gte": today_start}})
+    users_today    = users_col.count_documents({"joined_at": {"$gte": today_start}})
     total_warnings = warnings_col.count_documents({})
-    total_comments = 0
-    for p in posts_col.find({}, {"comments": 1}):
-        total_comments += len(p.get("comments", []))
+    total_comments = sum(len(p.get("comments", [])) for p in posts_col.find({}, {"comments": 1}))
 
-    # Weekly posts per day (last 7 days)
     weekly = []
     for i in range(6, -1, -1):
         day_start = now - ((i+1) * 24 * 3600 * 1000)
@@ -90,80 +278,29 @@ def get_stats():
         weekly.append({"day": label, "count": count})
 
     return jsonify({
-        "total_users": total_users,
-        "total_posts": total_posts,
-        "total_admins": total_admins,
-        "total_banned": total_banned,
-        "reported_posts": reported_posts,
-        "posts_today": posts_today,
-        "users_today": users_today,
-        "total_warnings": total_warnings,
-        "total_comments": total_comments,
-        "weekly": weekly,
+        "total_users": total_users, "total_posts": total_posts,
+        "total_admins": total_admins, "total_banned": total_banned,
+        "reported_posts": reported_posts, "posts_today": posts_today,
+        "users_today": users_today, "total_warnings": total_warnings,
+        "total_comments": total_comments, "weekly": weekly,
     }), 200
 
-# ── ALL USERS ─────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+#  ALL USERS
+# ══════════════════════════════════════════════════════════════
 @admin_bp.route("/users", methods=["GET"])
 def get_all_users():
     username = request.args.get("username", "")
-    if not require_admin(username):
+    if not has_permission(username, "manage_users"):
         return jsonify({"error": "Unauthorized"}), 403
-    users = list(users_col.find({}, {"password": 0, "_id": 0}))
-    # Attach warning count
+    users = list(users_col.find({}, {"password": 0, "_id": 0, "plain_password": 0}))
     for u in users:
         u["warning_count"] = warnings_col.count_documents({"username": u["username"]})
     return jsonify(users), 200
 
-# ── PROMOTE / DEMOTE ──────────────────────────────────────────
-@admin_bp.route("/promote", methods=["POST", "OPTIONS"])
-def promote_user():
-    if request.method == "OPTIONS": return jsonify({}), 200
-    data = request.get_json()
-    requester = data.get("requester", "")
-    target    = data.get("target", "")
-    role      = data.get("role", "admin")
-
-    if not require_superadmin(requester):
-        return jsonify({"error": "Only Super-Admin can promote/demote!"}), 403
-    if target in SUPER_ADMINS:
-        return jsonify({"error": "Cannot change Super-Admin role!"}), 400
-
-    users_col.update_one({"username": target}, {"$set": {"role": role}})
-    action_str = "promoted to Admin" if role == "admin" else "demoted to User"
-    log_action(requester, f"ROLE_CHANGE", target, action_str)
-    push_notif(target, f"You have been {action_str} by Super-Admin.", "role")
-    return jsonify({"message": f"@{target} has been {action_str}!"}), 200
-
-# ── ADD / REMOVE SUPER-ADMIN ─────────────────────────────────
-@admin_bp.route("/set-superadmin", methods=["POST", "OPTIONS"])
-def set_superadmin():
-    if request.method == "OPTIONS": return jsonify({}), 200
-    data = request.get_json()
-    requester = data.get("requester", "")
-    target    = data.get("target", "")
-    action    = data.get("action", "add")  # "add" or "remove"
-
-    if not require_superadmin(requester):
-        return jsonify({"error": "Only Super-Admin can manage Super-Admins!"}), 403
-
-    if action == "add":
-        if target not in SUPER_ADMINS:
-            SUPER_ADMINS.append(target)
-        # Also set role in DB for persistence
-        users_col.update_one({"username": target}, {"$set": {"role": "superadmin"}})
-        log_action(requester, "SUPERADMIN_ADD", target, "Added as Super-Admin")
-        push_notif(target, "🎉 You have been granted Super-Admin access!", "role")
-        return jsonify({"message": f"@{target} is now a Super-Admin!"}), 200
-    else:
-        if target in SUPER_ADMINS and target != requester:
-            SUPER_ADMINS.remove(target)
-        users_col.update_one({"username": target}, {"$set": {"role": "user"}})
-        log_action(requester, "SUPERADMIN_REMOVE", target, "Removed from Super-Admin")
-        push_notif(target, "Your Super-Admin access has been removed.", "role")
-        return jsonify({"message": f"@{target} Super-Admin access removed!"}), 200
-
-
-# ── BAN / UNBAN ───────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+#  BAN / UNBAN
+# ══════════════════════════════════════════════════════════════
 @admin_bp.route("/ban", methods=["POST", "OPTIONS"])
 def ban_user():
     if request.method == "OPTIONS": return jsonify({}), 200
@@ -171,15 +308,12 @@ def ban_user():
     requester  = data.get("requester", "")
     target     = data.get("target", "")
     action     = data.get("action", "ban")
-    duration_h = data.get("duration_hours", 0)  # 0 = permanent
+    duration_h = data.get("duration_hours", 0)
 
-    if not require_admin(requester):
-        return jsonify({"error": "Unauthorized"}), 403
-    if target in SUPER_ADMINS:
+    if not has_permission(requester, "ban_users"):
+        return jsonify({"error": "You don't have ban permission!"}), 403
+    if is_superadmin(target):
         return jsonify({"error": "Cannot ban Super-Admin!"}), 400
-    target_role = get_role(target)
-    if target_role == "admin" and not require_superadmin(requester):
-        return jsonify({"error": "Only Super-Admin can ban Admins!"}), 403
 
     if action == "ban":
         ban_until = None
@@ -188,15 +322,17 @@ def ban_user():
         users_col.update_one({"username": target}, {"$set": {"banned": True, "ban_until": ban_until}})
         dur_str = f"for {duration_h}h" if duration_h else "permanently"
         log_action(requester, "BAN", target, dur_str)
-        push_notif(target, f"Your account has been banned {dur_str} by an Admin.", "ban")
+        push_notif(target, f"Your account has been banned {dur_str}.", "ban")
         return jsonify({"message": f"@{target} banned {dur_str}!"}), 200
     else:
         users_col.update_one({"username": target}, {"$set": {"banned": False, "ban_until": None}})
         log_action(requester, "UNBAN", target, "")
         push_notif(target, "Your account ban has been lifted. Welcome back!", "unban")
-        return jsonify({"message": f"@{target} has been unbanned!"}), 200
+        return jsonify({"message": f"@{target} unbanned!"}), 200
 
-# ── WARN USER ─────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+#  WARN USER
+# ══════════════════════════════════════════════════════════════
 @admin_bp.route("/warn", methods=["POST", "OPTIONS"])
 def warn_user():
     if request.method == "OPTIONS": return jsonify({}), 200
@@ -205,28 +341,28 @@ def warn_user():
     target    = data.get("target", "")
     reason    = data.get("reason", "Violation of community guidelines")
 
-    if not require_admin(requester):
-        return jsonify({"error": "Unauthorized"}), 403
-    if target in SUPER_ADMINS:
+    if not has_permission(requester, "warn_users"):
+        return jsonify({"error": "You don't have warn permission!"}), 403
+    if is_superadmin(target):
         return jsonify({"error": "Cannot warn Super-Admin!"}), 400
 
     warnings_col.insert_one({
-        "username": target,
-        "reason": reason,
-        "issued_by": requester,
-        "at": int(time.time() * 1000)
+        "username": target, "reason": reason,
+        "issued_by": requester, "at": int(time.time() * 1000)
     })
     log_action(requester, "WARN", target, reason)
-    push_notif(target, f"⚠️ You received a warning: {reason}", "warning")
+    push_notif(target, f"⚠️ Warning received: {reason}", "warning")
     return jsonify({"message": f"Warning issued to @{target}!"}), 200
 
-# ── DELETE POST ───────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+#  DELETE POST
+# ══════════════════════════════════════════════════════════════
 @admin_bp.route("/delete-post/<post_id>", methods=["DELETE", "OPTIONS"])
 def delete_post(post_id):
     if request.method == "OPTIONS": return jsonify({}), 200
     username = request.args.get("username", "")
-    if not require_admin(username):
-        return jsonify({"error": "Unauthorized"}), 403
+    if not has_permission(username, "delete_reports"):
+        return jsonify({"error": "You don't have permission to delete posts!"}), 403
     post = posts_col.find_one({"_id": ObjectId(post_id)})
     if post:
         log_action(username, "DELETE_POST", post.get("username",""), post.get("title",""))
@@ -234,7 +370,9 @@ def delete_post(post_id):
     posts_col.delete_one({"_id": ObjectId(post_id)})
     return jsonify({"message": "Post deleted!"}), 200
 
-# ── REPORT POST ───────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+#  REPORT POST
+# ══════════════════════════════════════════════════════════════
 @admin_bp.route("/report-post/<post_id>", methods=["POST", "OPTIONS"])
 def report_post(post_id):
     if request.method == "OPTIONS": return jsonify({}), 200
@@ -243,23 +381,28 @@ def report_post(post_id):
     reason   = data.get("reason", "Inappropriate content")
     if not reporter:
         return jsonify({"error": "Username required"}), 400
-    report = {"username": reporter, "reason": reason, "at": int(time.time() * 1000)}
-    posts_col.update_one({"_id": ObjectId(post_id)}, {"$push": {"reports": report}})
+    posts_col.update_one({"_id": ObjectId(post_id)}, {"$push": {"reports": {
+        "username": reporter, "reason": reason, "at": int(time.time() * 1000)
+    }}})
     log_action(reporter, "REPORT_POST", post_id, reason)
     return jsonify({"message": "Post reported! Admins will review it."}), 200
 
-# ── REPORTED POSTS ────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+#  REPORTED POSTS
+# ══════════════════════════════════════════════════════════════
 @admin_bp.route("/reported-posts", methods=["GET"])
 def get_reported_posts():
     username = request.args.get("username", "")
-    if not require_admin(username):
+    if not has_permission(username, "view_reports"):
         return jsonify({"error": "Unauthorized"}), 403
     posts = list(posts_col.find({"reports": {"$exists": True, "$ne": []}}).sort("createdAt", -1))
     for p in posts:
         p["_id"] = str(p["_id"])
     return jsonify(posts), 200
 
-# ── ANNOUNCEMENT ──────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+#  ANNOUNCEMENT
+# ══════════════════════════════════════════════════════════════
 @admin_bp.route("/announce", methods=["POST", "OPTIONS"])
 def announce():
     if request.method == "OPTIONS": return jsonify({}), 200
@@ -267,16 +410,13 @@ def announce():
     username = data.get("username", "")
     message  = data.get("message", "").strip()
     title    = data.get("title", "").strip()
-    if not require_admin(username):
-        return jsonify({"error": "Unauthorized"}), 403
+    if not has_permission(username, "post_announcements"):
+        return jsonify({"error": "You don't have announcement permission!"}), 403
     if not message or not title:
         return jsonify({"error": "Title and message required!"}), 400
     ann = {
-        "username": username,
-        "title": title,
-        "message": message,
-        "createdAt": int(time.time() * 1000),
-        "role": get_role(username)
+        "username": username, "title": title, "message": message,
+        "createdAt": int(time.time() * 1000), "role": get_role(username)
     }
     result = announcements_col.insert_one(ann)
     ann["_id"] = str(result.inserted_id)
@@ -290,18 +430,22 @@ def get_announcements():
         a["_id"] = str(a["_id"])
     return jsonify(anns), 200
 
-# ── AUDIT LOGS ────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+#  AUDIT LOG
+# ══════════════════════════════════════════════════════════════
 @admin_bp.route("/audit-logs", methods=["GET"])
 def get_audit_logs():
     username = request.args.get("username", "")
-    if not require_admin(username):
+    if not has_permission(username, "view_audit"):
         return jsonify({"error": "Unauthorized"}), 403
     logs = list(audit_col.find({}).sort("at", -1).limit(100))
     for l in logs:
         l["_id"] = str(l["_id"])
     return jsonify(logs), 200
 
-# ── NOTIFICATIONS ─────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+#  NOTIFICATIONS
+# ══════════════════════════════════════════════════════════════
 @admin_bp.route("/notifications", methods=["GET"])
 def get_notifications():
     username = request.args.get("username", "")
@@ -324,46 +468,28 @@ def notif_count():
     count = notifs_col.count_documents({"to": username, "read": False})
     return jsonify({"count": count}), 200
 
-# ── COMMENT NOTIFY (called from posts route) ──────────────────
-@admin_bp.route("/notify-comment", methods=["POST", "OPTIONS"])
-def notify_comment():
-    if request.method == "OPTIONS": return jsonify({}), 200
-    data = request.get_json()
-    post_owner = data.get("post_owner", "")
-    commenter  = data.get("commenter", "")
-    post_title = data.get("post_title", "")
-    if post_owner and post_owner != commenter:
-        push_notif(post_owner, f"@{commenter} commented on your post: '{post_title}'", "comment")
-    return jsonify({"ok": True}), 200
-
-# ── WARNINGS LIST ─────────────────────────────────────────────
-@admin_bp.route("/warnings/<username>", methods=["GET"])
-def get_warnings(username):
-    requester = request.args.get("requester", "")
-    if requester != username and not require_admin(requester):
-        return jsonify({"error": "Unauthorized"}), 403
-    warns = list(warnings_col.find({"username": username}).sort("at", -1))
-    for w in warns:
-        w["_id"] = str(w["_id"])
-    return jsonify(warns), 200
-
-# ── DB BACKUP (export collections as JSON) ───────────────────
+# ══════════════════════════════════════════════════════════════
+#  BACKUP (superadmin only)
+# ══════════════════════════════════════════════════════════════
 @admin_bp.route("/backup", methods=["GET"])
 def backup():
     username = request.args.get("username", "")
-    if not require_superadmin(username):
+    if not is_superadmin(username):
         return jsonify({"error": "Only Super-Admin can backup!"}), 403
-
-    users  = list(users_col.find({}, {"password": 0, "_id": 0, "plain_password": 0}))
-    posts  = list(posts_col.find({}, {"_id": 0}))
+    users = list(users_col.find({}, {"password": 0, "_id": 0, "plain_password": 0}))
+    posts = list(posts_col.find({}))
     for p in posts:
-        if "_id" in p: p["_id"] = str(p["_id"])
-
+        p["_id"] = str(p["_id"])
     log_action(username, "BACKUP", "", "Full backup downloaded")
     return jsonify({
         "backup_at": int(time.time() * 1000),
-        "users_count": len(users),
-        "posts_count": len(posts),
-        "users": users,
-        "posts": posts,
+        "users_count": len(users), "posts_count": len(posts),
+        "users": users, "posts": posts,
     }), 200
+
+# ══════════════════════════════════════════════════════════════
+#  PERMISSION LABELS (for frontend)
+# ══════════════════════════════════════════════════════════════
+@admin_bp.route("/permission-labels", methods=["GET"])
+def permission_labels():
+    return jsonify(PERMISSION_LABELS), 200

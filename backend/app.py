@@ -2,10 +2,9 @@ from flask import Flask
 from flask_cors import CORS
 from routes.auth import auth_bp
 from routes.posts import posts_bp
+from routes.admin import admin_bp
 
 app = Flask(__name__)
-
-# Allow all origins — fixes the CORS issue completely
 CORS(app)
 
 @app.after_request
@@ -17,6 +16,7 @@ def add_cors_headers(response):
 
 app.register_blueprint(auth_bp, url_prefix="/api/auth")
 app.register_blueprint(posts_bp, url_prefix="/api/posts")
+app.register_blueprint(admin_bp, url_prefix="/api/admin")
 
 @app.route("/")
 def index():

@@ -857,3 +857,43 @@ textarea { resize: vertical; }
   justify-content: center;
   display: inline-flex;
 }
+
+/* ============================
+   ADMIN PANEL v2 CSS
+   ============================ */
+
+.admin-tab-btn {
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.admin-tab-btn:hover { border-color: var(--primary); color: var(--text); }
+.admin-tab-btn.tab-active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+.perm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.perm-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+.perm-checkbox:hover { border-color: var(--primary); }
+.perm-checkbox input[type="checkbox"] { accent-color: var(--primary); width: 16px; height: 16px; }
+.perm-checkbox input:checked + span { color: var(--primary-light); font-weight: 600; }

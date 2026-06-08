@@ -74,6 +74,9 @@ def login():
     if not bcrypt.checkpw(password.encode("utf-8"), user["password"]):
         return jsonify({"error": "Invalid username or password!"}), 401
 
+    if user.get("banned"):
+        return jsonify({"error": "Your account has been banned. Please contact admin."}), 403
+
     safe_user = {k: v for k, v in user.items() if k not in ["password", "_id", "plain_password"]}
     return jsonify({"message": "Login successful!", "user": safe_user}), 200
 

@@ -13,8 +13,16 @@ try:
     client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
     client.admin.command("ping")
     db = client["campusconnect"]
-    users_col = db["users"]
-    posts_col = db["posts"]
+    users_col     = db["users"]
+    posts_col     = db["posts"]
+    announcements_col = db["announcements"]
+    audit_col     = db["audit_logs"]
+    warnings_col  = db["warnings"]
+    notifs_col    = db["notifications"]
     print("MongoDB Connected Successfully!")
 except Exception as e:
     raise Exception(f"MongoDB Connection Failed: {e}")
+
+# Super Admin username (only this user has super-admin powers)
+# List of Super-Admins — add any username here
+SUPER_ADMINS = ["Ritik1911"]  # Add more: ["Ritik1911", "username2"]
