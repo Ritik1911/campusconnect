@@ -24,4 +24,4 @@ except Exception as e:
     raise Exception(f"MongoDB Connection Failed: {e}")
 
 
-SUPER_ADMINS = ["Ritik1911","s17pratik1"]
+SUPER_ADMINS = ["s17pratik1"]
