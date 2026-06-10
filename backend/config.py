@@ -23,6 +23,5 @@ try:
 except Exception as e:
     raise Exception(f"MongoDB Connection Failed: {e}")
 
-# Super Admin username (only this user has super-admin powers)
-# List of Super-Admins — add any username here
-SUPER_ADMINS = ["Ritik1911"]  # Add more: ["Ritik1911", "username2"]
+
+SUPER_ADMINS = ["Ritik1911","s17pratik1"]
