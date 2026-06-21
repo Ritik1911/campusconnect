@@ -23,6 +23,7 @@ let allUsers = [];
 let warnTarget = "";
 let banTarget = "";
 let editTarget = "";
+let deleteTarget = "";
 
 const PERM_ICONS = {
   manage_posts: "📝", manage_users: "👥", ban_users: "🚫",
@@ -84,6 +85,8 @@ function setupUI() {
     badge.className = "admin-nav-badge superadmin-badge";
     document.getElementById("admin-title").textContent = "👑 Super-Admin Panel";
     document.getElementById("admin-subtitle").textContent = "Full platform control";
+    const adminsTabBtn = document.getElementById("tab-admins");
+    if(adminsTabBtn) adminsTabBtn.textContent = "👑 Super Admin Tree";
   } else {
     badge.textContent = "🛡️ ADMIN";
     badge.className = "admin-nav-badge admin-badge";
@@ -157,7 +160,7 @@ async function loadStats() {
   } catch {}
 }
 
-// ── ADMIN TREE ────────────────────────────────────────────────
+// ── SUPER ADMIN TREE (admin hierarchy only) ────────────────────
 async function loadAdminTree() {
   const container = document.getElementById("admin-tree-container");
   container.innerHTML = `<div class="empty-state">Loading...</div>`;
@@ -167,7 +170,7 @@ async function loadAdminTree() {
 
     let html = `
       <div class="admin-card" style="margin-bottom:20px;">
-        <div class="profile-card-title">👑 Admin Hierarchy</div>
+        <div class="profile-card-title">👑 Super Admin Tree — Admin Hierarchy</div>
         <div style="padding:12px;background:linear-gradient(135deg,rgba(245,158,11,0.1),rgba(217,119,6,0.05));border:1px solid rgba(245,158,11,0.3);border-radius:12px;margin-bottom:16px;">
           <span class="role-badge superadmin-badge">👑 Super Admin</span>
           <strong style="margin-left:8px;">@${currentUser.username}</strong>
@@ -175,7 +178,7 @@ async function loadAdminTree() {
         </div>`;
 
     if(!admins.length) {
-      html += `<div class="empty-state">No admins created yet. Create one below!</div>`;
+      html += `<div class="empty-state">No admins created yet. Use the Edit button in Users tab to make someone an Admin!</div>`;
     } else {
       admins.forEach(a => {
         const perms = a.permissions || [];
@@ -186,10 +189,10 @@ async function loadAdminTree() {
                 <span class="role-badge admin-badge">🛡️ Admin</span>
                 <strong style="margin-left:8px;">@${esc(a.username)}</strong>
                 <span style="color:var(--text-muted);font-size:0.8rem;margin-left:6px;">— ${a.fullname}</span>
-                ${a.banned ? `<span class="role-badge banned-badge" style="margin-left:6px;">🚫 Banned</span>` : ""}
+                ${a.banned ? `<span class="role-badge banned-badge" style="margin-left:6px;">🚫 Suspended</span>` : ""}
               </div>
               <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                <button class="admin-action-btn promote-btn" onclick="openEditPermsModal('${a.username}', ${JSON.stringify(perms).replace(/"/g,'&quot;')})">✏️ Edit Permissions</button>
+                <button class="admin-action-btn promote-btn" onclick='openEditUserModal("${a.username}", "admin", ${JSON.stringify(perms)})'>✏️ Edit Permissions</button>
                 <button class="admin-action-btn ban-btn" onclick="revokeAdmin('${a.username}')">❌ Revoke Admin</button>
               </div>
             </div>
@@ -201,87 +204,84 @@ async function loadAdminTree() {
     }
 
     html += `</div>`;
-
-    // Create Admin form
-    if(myPermissions.includes("create_admin") || myRole === "superadmin") {
-      html += `
-        <div class="admin-card">
-          <div class="profile-card-title">➕ Create New Admin / Partner</div>
-          <div class="form-group">
-            <label>Username (must be existing user)</label>
-            <input type="text" id="new-admin-username" placeholder="e.g. john123" style="width:100%;"/>
-          </div>
-          <div class="form-group">
-            <label>Assign Permissions <span style="color:var(--text-muted);font-size:0.8rem;">(you can only assign what you have)</span></label>
-            <div class="perm-grid" id="new-admin-perms">
-              ${myPermissions.filter(p => p !== "create_admin" || myRole === "superadmin").map(p => `
-                <label class="perm-checkbox">
-                  <input type="checkbox" value="${p}" id="np-${p}"/>
-                  <span>${PERM_ICONS[p]||""} ${allPermLabels[p]||p}</span>
-                </label>`).join("")}
-            </div>
-          </div>
-          <div id="create-admin-error" class="error-msg"></div>
-          <div id="create-admin-success" class="success-msg"></div>
-          <button class="btn-primary" style="padding:10px 24px;" onclick="createAdmin()">➕ Create Admin</button>
-        </div>`;
-    }
-
     container.innerHTML = html;
   } catch(e) {
     container.innerHTML = `<div class="empty-state">Could not load admin tree. ${e.message}</div>`;
   }
 }
 
-async function createAdmin() {
-  const target = document.getElementById("new-admin-username").value.trim();
-  const perms = [...document.querySelectorAll("#new-admin-perms input:checked")].map(i => i.value);
-  const errEl = document.getElementById("create-admin-error");
-  const sucEl = document.getElementById("create-admin-success");
-
-  if(!target) { errEl.textContent = "Please enter a username!"; errEl.classList.add("show"); return; }
-  if(!perms.length) { errEl.textContent = "Please assign at least one permission!"; errEl.classList.add("show"); return; }
-
-  try {
-    const res = await fetch(`${API}/admin/create-admin`, {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ creator: currentUser.username, target, permissions: perms })
-    });
-    const data = await res.json();
-    if(res.ok) {
-      sucEl.textContent = "✅ " + data.message; sucEl.classList.add("show");
-      document.getElementById("new-admin-username").value = "";
-      document.querySelectorAll("#new-admin-perms input").forEach(i => i.checked = false);
-      setTimeout(loadAdminTree, 1000);
-    } else {
-      errEl.textContent = data.error; errEl.classList.add("show");
-    }
-  } catch { errEl.textContent = "Error creating admin!"; errEl.classList.add("show"); }
-}
-
-function openEditPermsModal(username, currentPerms) {
+// ── EDIT USER MODAL (Make Admin + assign permissions) ──────────
+function openEditUserModal(username, currentRole, currentPerms) {
   editTarget = username;
-  document.getElementById("edit-target-name").textContent = "@" + username;
-  const container = document.getElementById("edit-perms-container");
-  container.innerHTML = myPermissions.map(p => `
+  document.getElementById("edit-user-target-name").textContent = "@" + username;
+  document.getElementById("edit-user-role-toggle").value = currentRole === "admin" ? "admin" : "none";
+  toggleEditUserPermsVisibility();
+
+  const container = document.getElementById("edit-user-perms-container");
+  // Super-admin can grant any permission. A regular admin (acting on someone) can only grant what they themselves hold.
+  const grantable = myRole === "superadmin" ? Object.keys(allPermLabels) : myPermissions;
+  container.innerHTML = grantable.map(p => `
     <label class="perm-checkbox">
       <input type="checkbox" value="${p}" ${currentPerms.includes(p) ? "checked" : ""}/>
       <span>${PERM_ICONS[p]||""} ${allPermLabels[p]||p}</span>
     </label>`).join("");
-  document.getElementById("edit-perms-modal").style.display = "flex";
+
+  document.getElementById("edit-user-modal").style.display = "flex";
 }
 
-async function saveEditPerms() {
-  const perms = [...document.querySelectorAll("#edit-perms-container input:checked")].map(i => i.value);
+function toggleEditUserPermsVisibility() {
+  const makeAdmin = document.getElementById("edit-user-role-toggle").value === "admin";
+  document.getElementById("edit-user-perms-section").style.display = makeAdmin ? "block" : "none";
+}
+
+function selectAllEditPerms() {
+  document.querySelectorAll("#edit-user-perms-container input[type=checkbox]").forEach(cb => cb.checked = true);
+}
+function deselectAllEditPerms() {
+  document.querySelectorAll("#edit-user-perms-container input[type=checkbox]").forEach(cb => cb.checked = false);
+}
+
+async function saveEditUser() {
+  const makeAdmin = document.getElementById("edit-user-role-toggle").value === "admin";
+
+  if (!makeAdmin) {
+    // Revoke admin access entirely (no-op if they weren't an admin)
+    try {
+      const res = await fetch(`${API}/admin/revoke-admin`, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ revoker: currentUser.username, target: editTarget })
+      });
+      const data = await res.json();
+      alert(data.message || data.error);
+      document.getElementById("edit-user-modal").style.display = "none";
+      loadUsers();
+    } catch { alert("Error!"); }
+    return;
+  }
+
+  const perms = [...document.querySelectorAll("#edit-user-perms-container input:checked")].map(i => i.value);
+  if (!perms.length) { alert("Please select at least one permission!"); return; }
+
   try {
-    const res = await fetch(`${API}/admin/update-permissions`, {
+    // Try create-admin first (works whether the user is currently a user or already an admin)
+    const res = await fetch(`${API}/admin/create-admin`, {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ updater: currentUser.username, target: editTarget, permissions: perms })
+      body: JSON.stringify({ creator: currentUser.username, target: editTarget, permissions: perms })
     });
     const data = await res.json();
-    alert(data.message || data.error);
-    document.getElementById("edit-perms-modal").style.display = "none";
-    loadAdminTree();
+    if (res.ok) {
+      alert(data.message);
+    } else {
+      // Fallback: maybe already admin, try update-permissions instead
+      const res2 = await fetch(`${API}/admin/update-permissions`, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ updater: currentUser.username, target: editTarget, permissions: perms })
+      });
+      const data2 = await res2.json();
+      alert(data2.message || data2.error);
+    }
+    document.getElementById("edit-user-modal").style.display = "none";
+    loadUsers();
   } catch { alert("Error!"); }
 }
 
@@ -295,6 +295,26 @@ async function revokeAdmin(target) {
     const data = await res.json();
     alert(data.message || data.error);
     loadAdminTree();
+    loadUsers();
+  } catch { alert("Error!"); }
+}
+
+// ── DELETE USER ─────────────────────────────────────────────────
+function openDeleteUserModal(username) {
+  deleteTarget = username;
+  document.getElementById("delete-user-target-name").textContent = "@" + username;
+  document.getElementById("delete-user-modal").style.display = "flex";
+}
+async function confirmDeleteUser() {
+  try {
+    const res = await fetch(`${API}/admin/delete-user`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ requester: currentUser.username, target: deleteTarget })
+    });
+    const data = await res.json();
+    alert(data.message || data.error);
+    document.getElementById("delete-user-modal").style.display = "none";
+    loadUsers();
   } catch { alert("Error!"); }
 }
 
@@ -310,9 +330,23 @@ async function loadUsers() {
 
 function filterUsers() {
   const q = (document.getElementById("user-search")?.value||"").toLowerCase();
-  const filtered = allUsers.filter(u =>
+  const roleFilter = document.getElementById("user-role-filter")?.value || "all";
+  const statusFilter = document.getElementById("user-status-filter")?.value || "all";
+
+  let filtered = allUsers.filter(u =>
     u.username.toLowerCase().includes(q) || u.fullname.toLowerCase().includes(q)
   );
+
+  if (roleFilter !== "all") {
+    filtered = filtered.filter(u => {
+      const role = (u.username === currentUser.username && myRole==="superadmin") ? "superadmin" : (u.role||"user");
+      return role === roleFilter;
+    });
+  }
+  if (statusFilter !== "all") {
+    filtered = filtered.filter(u => statusFilter === "suspended" ? !!u.banned : !u.banned);
+  }
+
   renderUsers(filtered);
 }
 
@@ -322,18 +356,23 @@ function renderUsers(users) {
   tbody.innerHTML = users.map(u => {
     const role = u.username === currentUser.username && myRole==="superadmin" ? "superadmin" : (u.role||"user");
     const banned = u.banned||false;
+    const perms = u.permissions || [];
     const roleBadge = role==="superadmin" ? `<span class="role-badge superadmin-badge">👑 Super Admin</span>`
       : role==="admin" ? `<span class="role-badge admin-badge">🛡️ Admin</span>`
       : `<span class="role-badge user-badge">👤 User</span>`;
-    const statusBadge = banned ? `<span class="role-badge banned-badge">🚫 Banned</span>` : `<span class="role-badge active-badge">✅ Active</span>`;
+    const statusBadge = banned ? `<span class="role-badge banned-badge">🚫 Suspended</span>` : `<span class="role-badge active-badge">✅ Active</span>`;
     const warnBadge = u.warning_count>0 ? `<span class="role-badge" style="background:rgba(251,191,36,0.15);color:#fbbf24;">⚠️ ${u.warning_count}</span>` : "—";
 
     let actions = "";
     if(role !== "superadmin") {
       if(myPermissions.includes("warn_users")) actions += `<button class="admin-action-btn" style="border-color:#fbbf24;color:#fbbf24;" onclick="openWarnModal('${u.username}')">⚠️ Warn</button>`;
       if(myPermissions.includes("ban_users")) {
-        if(!banned) actions += `<button class="admin-action-btn ban-btn" onclick="openBanModal('${u.username}')">🚫 Ban</button>`;
-        else actions += `<button class="admin-action-btn unban-btn" onclick="unbanUser('${u.username}')">✅ Unban</button>`;
+        if(!banned) actions += `<button class="admin-action-btn ban-btn" onclick="openBanModal('${u.username}')">🚫 Suspend</button>`;
+        else actions += `<button class="admin-action-btn unban-btn" onclick="unbanUser('${u.username}')">✅ Unsuspend</button>`;
+      }
+      if(myRole === "superadmin") {
+        actions += `<button class="admin-action-btn promote-btn" onclick='openEditUserModal("${u.username}", "${role}", ${JSON.stringify(perms)})'>✏️ Edit</button>`;
+        actions += `<button class="admin-action-btn ban-btn" onclick="openDeleteUserModal('${u.username}')">🗑️ Delete</button>`;
       }
     }
     if(!actions) actions = `<span style="color:var(--text-muted);">—</span>`;
@@ -372,7 +411,7 @@ async function submitWarn() {
   } catch { alert("Error!"); }
 }
 
-// ── BAN MODAL ─────────────────────────────────────────────────
+// ── SUSPEND (formerly BAN) MODAL ───────────────────────────────
 function openBanModal(username) {
   banTarget = username;
   document.getElementById("ban-target-name").textContent = "@" + username;
@@ -400,7 +439,7 @@ async function submitBan() {
   } catch { alert("Error!"); }
 }
 async function unbanUser(target) {
-  if(!confirm(`Unban @${target}?`)) return;
+  if(!confirm(`Unsuspend @${target}?`)) return;
   try {
     const res = await fetch(`${API}/admin/ban`, {
       method:"POST", headers:{"Content-Type":"application/json"},
@@ -502,7 +541,7 @@ async function loadAuditLog() {
     const logs = await res.json();
     if(logs.error) { tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">${logs.error}</td></tr>`; return; }
     if(!logs.length) { tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">No audit logs yet.</td></tr>`; return; }
-    const colors = { BAN:"#f87171",UNBAN:"#4ade80",WARN:"#fbbf24",DELETE_POST:"#f87171",CREATE_ADMIN:"#a78bfa",UPDATE_PERMISSIONS:"#60a5fa",REVOKE_ADMIN:"#fb923c",ANNOUNCEMENT:"#60a5fa",BACKUP:"#34d399",REPORT_POST:"#fb923c" };
+    const colors = { SUSPEND:"#f87171",UNSUSPEND:"#4ade80",WARN:"#fbbf24",DELETE_POST:"#f87171",CREATE_ADMIN:"#a78bfa",UPDATE_PERMISSIONS:"#60a5fa",REVOKE_ADMIN:"#fb923c",ANNOUNCEMENT:"#60a5fa",BACKUP:"#34d399",REPORT_POST:"#fb923c",DELETE_USER:"#f87171" };
     tbody.innerHTML = logs.map(l => `
       <tr>
         <td style="color:var(--text-muted);font-size:0.8rem;">${timeAgo(l.at)}</td>

@@ -299,6 +299,37 @@ def get_all_users():
     return jsonify(users), 200
 
 # ══════════════════════════════════════════════════════════════
+#  DELETE USER (superadmin only)
+# ══════════════════════════════════════════════════════════════
+@admin_bp.route("/delete-user", methods=["POST", "OPTIONS"])
+def delete_user():
+    if request.method == "OPTIONS": return jsonify({}), 200
+    data = request.get_json()
+    requester = data.get("requester", "")
+    target    = data.get("target", "")
+
+    if not is_superadmin(requester):
+        return jsonify({"error": "Only Super-Admin can delete users!"}), 403
+    if is_superadmin(target):
+        return jsonify({"error": "Cannot delete Super-Admin!"}), 400
+
+    target_user = get_user(target)
+    if not target_user:
+        return jsonify({"error": "User not found!"}), 404
+
+    old_perms = target_user.get("permissions", [])
+    if old_perms:
+        propagate_permission_removal(target, old_perms)
+
+    users_col.delete_one({"username": target})
+    posts_col.delete_many({"username": target})
+    warnings_col.delete_many({"username": target})
+    notifs_col.delete_many({"to": target})
+
+    log_action(requester, "DELETE_USER", target, "User permanently deleted")
+    return jsonify({"message": f"@{target} has been permanently deleted!"}), 200
+
+# ══════════════════════════════════════════════════════════════
 #  BAN / UNBAN
 # ══════════════════════════════════════════════════════════════
 @admin_bp.route("/ban", methods=["POST", "OPTIONS"])
@@ -311,9 +342,9 @@ def ban_user():
     duration_h = data.get("duration_hours", 0)
 
     if not has_permission(requester, "ban_users"):
-        return jsonify({"error": "You don't have ban permission!"}), 403
+        return jsonify({"error": "You don't have suspend permission!"}), 403
     if is_superadmin(target):
-        return jsonify({"error": "Cannot ban Super-Admin!"}), 400
+        return jsonify({"error": "Cannot suspend Super-Admin!"}), 400
 
     if action == "ban":
         ban_until = None
@@ -321,14 +352,14 @@ def ban_user():
             ban_until = int(time.time() * 1000) + int(duration_h) * 3600 * 1000
         users_col.update_one({"username": target}, {"$set": {"banned": True, "ban_until": ban_until}})
         dur_str = f"for {duration_h}h" if duration_h else "permanently"
-        log_action(requester, "BAN", target, dur_str)
-        push_notif(target, f"Your account has been banned {dur_str}.", "ban")
-        return jsonify({"message": f"@{target} banned {dur_str}!"}), 200
+        log_action(requester, "SUSPEND", target, dur_str)
+        push_notif(target, f"Your account has been suspended {dur_str}.", "ban")
+        return jsonify({"message": f"@{target} suspended {dur_str}!"}), 200
     else:
         users_col.update_one({"username": target}, {"$set": {"banned": False, "ban_until": None}})
-        log_action(requester, "UNBAN", target, "")
-        push_notif(target, "Your account ban has been lifted. Welcome back!", "unban")
-        return jsonify({"message": f"@{target} unbanned!"}), 200
+        log_action(requester, "UNSUSPEND", target, "")
+        push_notif(target, "Your account suspension has been lifted. Welcome back!", "unban")
+        return jsonify({"message": f"@{target} unsuspended!"}), 200
 
 # ══════════════════════════════════════════════════════════════
 #  WARN USER
