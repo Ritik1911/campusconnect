@@ -365,7 +365,7 @@ function renderUsers(users) {
 
     let actions = "";
     if(role !== "superadmin") {
-      if(myPermissions.includes("warn_users")) actions += `<button class="admin-action-btn" style="border-color:#fbbf24;color:#fbbf24;" onclick="openWarnModal('${u.username}')">⚠️ Warn</button>`;
+      if(myPermissions.includes("warn_users")) actions += `<button class="admin-action-btn warn-action-btn" onclick="openWarnModal('${u.username}')">⚠️ Warn</button>`;
       if(myPermissions.includes("ban_users")) {
         if(!banned) actions += `<button class="admin-action-btn ban-btn" onclick="openBanModal('${u.username}')">🚫 Suspend</button>`;
         else actions += `<button class="admin-action-btn unban-btn" onclick="unbanUser('${u.username}')">✅ Unsuspend</button>`;
@@ -375,7 +375,9 @@ function renderUsers(users) {
         actions += `<button class="admin-action-btn ban-btn" onclick="openDeleteUserModal('${u.username}')">🗑️ Delete</button>`;
       }
     }
-    if(!actions) actions = `<span style="color:var(--text-muted);">—</span>`;
+    const actionsCell = actions
+      ? `<div class="admin-actions-cell"><div class="admin-actions-label">Actions</div><div class="admin-actions-row">${actions}</div></div>`
+      : `<span style="color:var(--text-muted);">—</span>`;
 
     return `<tr>
       <td><strong>@${esc(u.username)}</strong></td>
@@ -384,7 +386,7 @@ function renderUsers(users) {
       <td>${roleBadge}</td>
       <td>${statusBadge}</td>
       <td>${warnBadge}</td>
-      <td><div style="display:flex;gap:4px;flex-wrap:wrap;">${actions}</div></td>
+      <td>${actionsCell}</td>
     </tr>`;
   }).join("");
 }

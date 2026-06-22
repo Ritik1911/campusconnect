@@ -38,6 +38,8 @@ PERMISSION_LABELS = {
 #  HELPERS
 # ══════════════════════════════════════════════════════════════
 def is_superadmin(username):
+    """Only usernames in the hardcoded SUPER_ADMINS list are true Super-Admins.
+    This cannot be changed via the UI — it is fixed in config.py."""
     return username in SUPER_ADMINS
 
 def get_user(username):
@@ -61,7 +63,12 @@ def get_role(username):
     user = get_user(username)
     if not user:
         return "user"
-    return user.get("role", "user")
+    role = user.get("role", "user")
+    # Safety: only the hardcoded SUPER_ADMINS list can ever be superadmin.
+    # If a stale "superadmin" role exists in the DB from before, treat it as admin instead.
+    if role == "superadmin":
+        return "admin"
+    return role
 
 def log_action(actor, action, target="", detail=""):
     audit_col.insert_one({
