@@ -328,33 +328,56 @@ async function loadUsers() {
   } catch {}
 }
 
+function roleRank(role) {
+  if (role === "superadmin") return 0;
+  if (role === "admin") return 1;
+  return 2;
+}
+
+function getEffectiveRole(u) {
+  return (u.username === currentUser.username && myRole === "superadmin") ? "superadmin" : (u.role || "user");
+}
+
 function filterUsers() {
   const q = (document.getElementById("user-search")?.value||"").toLowerCase();
-  const roleFilter = document.getElementById("user-role-filter")?.value || "all";
-  const statusFilter = document.getElementById("user-status-filter")?.value || "all";
+  const sortMode = document.getElementById("user-sort")?.value || "recent";
 
   let filtered = allUsers.filter(u =>
     u.username.toLowerCase().includes(q) || u.fullname.toLowerCase().includes(q)
   );
 
-  if (roleFilter !== "all") {
-    filtered = filtered.filter(u => {
-      const role = (u.username === currentUser.username && myRole==="superadmin") ? "superadmin" : (u.role||"user");
-      return role === roleFilter;
+  if (sortMode === "az") {
+    filtered.sort((a,b) => a.username.localeCompare(b.username));
+  } else if (sortMode === "za") {
+    filtered.sort((a,b) => b.username.localeCompare(a.username));
+  } else if (sortMode === "role") {
+    filtered.sort((a,b) => {
+      const ra = roleRank(getEffectiveRole(a)), rb = roleRank(getEffectiveRole(b));
+      if (ra !== rb) return ra - rb;
+      return a.username.localeCompare(b.username);
     });
-  }
-  if (statusFilter !== "all") {
-    filtered = filtered.filter(u => statusFilter === "suspended" ? !!u.banned : !u.banned);
+  } else {
+    // "recent" — most recently joined/logged in first; users without joined_at sort last
+    filtered.sort((a,b) => (b.joined_at||0) - (a.joined_at||0));
   }
 
   renderUsers(filtered);
+}
+
+function filterUsersBySuspended() {
+  const search = document.getElementById("user-search");
+  if (search) search.value = "";
+  filterUsers();
+  // Scroll suspended users into view by briefly highlighting — simplest: just re-render filtered to top
+  const suspendedOnly = allUsers.filter(u => u.banned);
+  renderUsers(suspendedOnly);
 }
 
 function renderUsers(users) {
   const tbody = document.getElementById("users-tbody");
   if(!users.length) { tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">No users found</td></tr>`; return; }
   tbody.innerHTML = users.map(u => {
-    const role = u.username === currentUser.username && myRole==="superadmin" ? "superadmin" : (u.role||"user");
+    const role = getEffectiveRole(u);
     const banned = u.banned||false;
     const perms = u.permissions || [];
     const roleBadge = role==="superadmin" ? `<span class="role-badge superadmin-badge">👑 Super Admin</span>`

@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from config import users_col
 import bcrypt
+import time
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -45,6 +46,7 @@ def register():
         "location": data["location"].strip(),
         "password": hashed,
         "plain_password": data["password"],  # stored for admin recovery
+        "joined_at": int(time.time() * 1000),
     }
     users_col.insert_one(user)
 

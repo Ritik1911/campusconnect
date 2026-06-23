@@ -59,7 +59,7 @@
             <div class="admin-stat-card" onclick="showTab('reports')" title="View posts &amp; reports"><div class="admin-stat-icon">📝</div><div class="admin-stat-num" id="s-posts">—</div><div class="admin-stat-label">Total Posts</div></div>
             <div class="admin-stat-card" onclick="showTab('reports')" title="View reported posts &amp; comments"><div class="admin-stat-icon">💬</div><div class="admin-stat-num" id="s-comments">—</div><div class="admin-stat-label">Comments</div></div>
             <div class="admin-stat-card" onclick="showTab('admins')" title="View Super Admin Tree"><div class="admin-stat-icon">🛡️</div><div class="admin-stat-num" id="s-admins">—</div><div class="admin-stat-label">Admins</div></div>
-            <div class="admin-stat-card" onclick="showTab('users'); setTimeout(()=>{ const el=document.getElementById('user-status-filter'); if(el){ el.value='suspended'; filterUsers(); } }, 50)" title="View suspended users"><div class="admin-stat-icon">🚫</div><div class="admin-stat-num" id="s-banned">—</div><div class="admin-stat-label">Suspended</div></div>
+            <div class="admin-stat-card" onclick="showTab('users'); setTimeout(()=>{ filterUsersBySuspended(); }, 50)" title="View suspended users"><div class="admin-stat-icon">🚫</div><div class="admin-stat-num" id="s-banned">—</div><div class="admin-stat-label">Suspended</div></div>
             <div class="admin-stat-card" onclick="showTab('users')" title="View users with warnings"><div class="admin-stat-icon">⚠️</div><div class="admin-stat-num" id="s-warnings">—</div><div class="admin-stat-label">Warnings</div></div>
             <div class="admin-stat-card" onclick="showTab('overview')" title="View today's post activity"><div class="admin-stat-icon">🔥</div><div class="admin-stat-num" id="s-today">—</div><div class="admin-stat-label">Posts Today</div></div>
             <div class="admin-stat-card" onclick="showTab('users')" title="View newest users"><div class="admin-stat-icon">🆕</div><div class="admin-stat-num" id="s-new-users">—</div><div class="admin-stat-label">New Users Today</div></div>
@@ -76,21 +76,14 @@
       <!-- USERS -->
       <div id="tab-content-users" style="display:none;">
         <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
-          <span>👥 All Users</span>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <select id="user-role-filter" onchange="filterUsers()" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:0.82rem;">
-              <option value="all">All Roles</option>
-              <option value="superadmin">Super Admin</option>
-              <option value="admin">Admin</option>
-              <option value="user">User</option>
-            </select>
-            <select id="user-status-filter" onchange="filterUsers()" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:0.82rem;">
-              <option value="all">All Status</option>
-              <option value="active">Active</option>
-              <option value="suspended">Suspended</option>
-            </select>
-            <input type="text" id="user-search" placeholder="🔍 Search..." onInput="filterUsers()" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--text);font-size:0.85rem;width:200px;"/>
-          </div>
+          <select id="user-sort" onchange="filterUsers()" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:0.82rem;">
+            <option value="recent">🕐 Recently Joined First</option>
+            <option value="az">🔤 A → Z</option>
+            <option value="za">🔤 Z → A</option>
+            <option value="role">👑 By Role (Super Admin → Admin → User)</option>
+          </select>
+          <span style="flex:1;text-align:center;color:var(--text-muted);font-size:0.7rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">👥 All Users</span>
+          <input type="text" id="user-search" placeholder="🔍 Search username or name..." onInput="filterUsers()" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--text);font-size:0.85rem;width:220px;"/>
         </div>
         <div class="admin-card" style="overflow-x:auto;">
           <table class="admin-table">

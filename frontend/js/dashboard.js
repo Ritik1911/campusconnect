@@ -29,6 +29,7 @@ function toggleRead(postId) {
   localStorage.setItem("cc_read", JSON.stringify(read));
   loadPosts();
   loadReadSection();
+  loadCounts();
 }
 
 function toggleInterested(postId) {
@@ -142,8 +143,10 @@ function filterPosts(topic, chipEl) {
 // TOPIC COUNTS
 async function loadCounts() {
   try {
-    const res = await fetch(`${API}/posts/counts`);
-    const counts = await res.json();
+    const res = await fetch(`${API}/posts/all`);
+    const posts = await res.json();
+    const readIds = getReadPosts();
+
     const map = {
       "all": "count-all",
       "Sincere Work": "count-sincere",
@@ -157,11 +160,23 @@ async function loadCounts() {
       "Exam": "count-exam",
       "Other": "count-other"
     };
+    const validTopics = Object.keys(map).filter(t => t !== "all");
+
+    // Count only UNREAD posts per topic
+    const unreadCounts = { all: 0 };
+    posts.forEach(p => {
+      if (readIds.includes(p._id)) return; // already read, don't count
+      const t = validTopics.includes(p.topic) ? p.topic : "Other";
+      unreadCounts[t] = (unreadCounts[t] || 0) + 1;
+      unreadCounts.all += 1;
+    });
+
     for (const [topic, elId] of Object.entries(map)) {
       const el = document.getElementById(elId);
       if (el) {
-        if (counts[topic] && counts[topic] > 0) {
-          el.textContent = counts[topic];
+        const count = unreadCounts[topic] || 0;
+        if (count > 0) {
+          el.textContent = count;
           el.style.display = "inline-flex";
         } else {
           el.style.display = "none";
