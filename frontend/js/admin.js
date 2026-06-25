@@ -311,11 +311,19 @@ async function confirmDeleteUser() {
       method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({ requester: currentUser.username, target: deleteTarget })
     });
-    const data = await res.json();
-    alert(data.message || data.error);
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      alert(`Server error (HTTP ${res.status}). The delete endpoint may not be deployed yet — please redeploy the backend.`);
+      return;
+    }
+    alert(data.message || data.error || `Unknown error (HTTP ${res.status})`);
     document.getElementById("delete-user-modal").style.display = "none";
     loadUsers();
-  } catch { alert("Error!"); }
+  } catch (e) {
+    alert("Could not reach the server. Check your internet connection or that the backend is running. (" + e.message + ")");
+  }
 }
 
 // ── USERS TABLE ───────────────────────────────────────────────
