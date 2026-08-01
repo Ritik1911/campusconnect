@@ -43,6 +43,8 @@
           <button class="admin-tab-btn tab-active" onclick="showTab('overview')" id="tab-overview">📊 Overview</button>
           <button class="admin-tab-btn" onclick="showTab('admins')" id="tab-admins">👑 Super Admin Tree</button>
           <button class="admin-tab-btn" onclick="showTab('users')" id="tab-users">👥 Users</button>
+          <button class="admin-tab-btn" onclick="showTab('allposts')" id="tab-allposts">📝 All Posts</button>
+          <button class="admin-tab-btn" onclick="showTab('comments')" id="tab-comments">💬 Comments</button>
           <button class="admin-tab-btn" onclick="showTab('reports')" id="tab-reports">⚠️ Reports</button>
           <button class="admin-tab-btn" onclick="showTab('announce')" id="tab-announce">📢 Announce</button>
           <button class="admin-tab-btn" onclick="showTab('audit')" id="tab-audit">📋 Audit</button>
@@ -56,8 +58,8 @@
           <div class="section-title">📊 Platform Statistics</div>
           <div class="admin-stats-grid">
             <div class="admin-stat-card" onclick="showTab('users')" title="View all users"><div class="admin-stat-icon">👥</div><div class="admin-stat-num" id="s-users">—</div><div class="admin-stat-label">Total Users</div></div>
-            <div class="admin-stat-card" onclick="showTab('reports')" title="View posts &amp; reports"><div class="admin-stat-icon">📝</div><div class="admin-stat-num" id="s-posts">—</div><div class="admin-stat-label">Total Posts</div></div>
-            <div class="admin-stat-card" onclick="showTab('reports')" title="View reported posts &amp; comments"><div class="admin-stat-icon">💬</div><div class="admin-stat-num" id="s-comments">—</div><div class="admin-stat-label">Comments</div></div>
+            <div class="admin-stat-card" onclick="showTab('allposts')" title="View all posts, from the start till now"><div class="admin-stat-icon">📝</div><div class="admin-stat-num" id="s-posts">—</div><div class="admin-stat-label">Total Posts</div></div>
+            <div class="admin-stat-card" onclick="showTab('comments')" title="View every comment"><div class="admin-stat-icon">💬</div><div class="admin-stat-num" id="s-comments">—</div><div class="admin-stat-label">Comments</div></div>
             <div class="admin-stat-card" onclick="showTab('admins')" title="View Super Admin Tree"><div class="admin-stat-icon">🛡️</div><div class="admin-stat-num" id="s-admins">—</div><div class="admin-stat-label">Admins</div></div>
             <div class="admin-stat-card" onclick="showTab('users'); setTimeout(()=>{ filterUsersBySuspended(); }, 50)" title="View suspended users"><div class="admin-stat-icon">🚫</div><div class="admin-stat-num" id="s-banned">—</div><div class="admin-stat-label">Suspended</div></div>
             <div class="admin-stat-card" onclick="showTab('users')" title="View users with warnings"><div class="admin-stat-icon">⚠️</div><div class="admin-stat-num" id="s-warnings">—</div><div class="admin-stat-label">Warnings</div></div>
@@ -89,6 +91,29 @@
           <table class="admin-table">
             <thead><tr><th>Username</th><th>Name</th><th>Stream</th><th>Role</th><th>Status</th><th>Warnings</th><th>Actions</th></tr></thead>
             <tbody id="users-tbody"><tr><td colspan="7" style="text-align:center;color:var(--text-muted);">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ALL POSTS (full history, start to now) -->
+      <div id="tab-content-allposts" style="display:none;">
+        <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+          <span>📝 All Posts — From the Start Till Now</span>
+          <input type="text" id="allposts-search" placeholder="🔍 Search title or @username..." onInput="filterAllPosts()" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--text);font-size:0.85rem;width:240px;"/>
+        </div>
+        <div id="allposts-feed" class="posts-feed"><div class="empty-state">Loading...</div></div>
+      </div>
+
+      <!-- COMMENTS (every comment on every post) -->
+      <div id="tab-content-comments" style="display:none;">
+        <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+          <span>💬 All Comments</span>
+          <input type="text" id="comments-search" placeholder="🔍 Search comment or @username..." onInput="filterAllComments()" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--text);font-size:0.85rem;width:240px;"/>
+        </div>
+        <div class="admin-card" style="overflow-x:auto;">
+          <table class="admin-table">
+            <thead><tr><th>Time</th><th>Commenter</th><th>Comment</th><th>On Post</th><th>Post Author</th></tr></thead>
+            <tbody id="comments-tbody"><tr><td colspan="5" style="text-align:center;color:var(--text-muted);">Loading...</td></tr></tbody>
           </table>
         </div>
       </div>

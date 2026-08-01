@@ -16,6 +16,24 @@ function timeAgo(ts) {
   return `${Math.floor(hrs/24)}d ago`;
 }
 
+// Same retry helper as dashboard.js — softens cold-start hiccups on the
+// free-tier backend so they don't show up as a flat "Could not load" (item 10)
+async function fetchWithRetry(url, options = {}, retries = 2, timeoutMs = 15000) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timer);
+      return res;
+    } catch (err) {
+      clearTimeout(timer);
+      if (attempt === retries) throw err;
+      await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
+    }
+  }
+}
+
 let myRole = "user";
 let myPermissions = [];
 let allPermLabels = {};
@@ -32,7 +50,7 @@ const PERM_ICONS = {
 };
 
 // ── TABS ──────────────────────────────────────────────────────
-const ALL_TABS = ["overview","reports","users","admins","announce","audit","backup"];
+const ALL_TABS = ["overview","reports","allposts","comments","users","admins","announce","audit","backup"];
 function showTab(tab) {
   ALL_TABS.forEach(t => {
     const el = document.getElementById(`tab-content-${t}`);
@@ -41,6 +59,8 @@ function showTab(tab) {
     if(btn) btn.classList.toggle("tab-active", t===tab);
   });
   if(tab==="reports") loadReportedPosts();
+  if(tab==="allposts") loadAllPosts();
+  if(tab==="comments") loadAllComments();
   if(tab==="users") loadUsers();
   if(tab==="admins") loadAdminTree();
   if(tab==="audit") loadAuditLog();
@@ -52,8 +72,8 @@ async function init() {
   let roleData = {};
   try {
     const [roleRes, labelsRes] = await Promise.all([
-      fetch(`${API}/admin/my-role?username=${currentUser.username}`),
-      fetch(`${API}/admin/permission-labels`)
+      fetchWithRetry(`${API}/admin/my-role?username=${currentUser.username}`),
+      fetchWithRetry(`${API}/admin/permission-labels`)
     ]);
     roleData = await roleRes.json();
     allPermLabels = await labelsRes.json();
@@ -98,6 +118,8 @@ function setupUI() {
   const tabMap = {
     "tab-overview":  true,
     "tab-reports":   myPermissions.includes("view_reports"),
+    "tab-allposts":  myPermissions.includes("manage_posts"),
+    "tab-comments":  myPermissions.includes("manage_posts"),
     "tab-users":     myPermissions.includes("manage_users"),
     "tab-admins":    myPermissions.includes("create_admin") || myRole === "superadmin",
     "tab-announce":  myPermissions.includes("post_announcements"),
@@ -119,7 +141,7 @@ function setupUI() {
 // ── STATS ─────────────────────────────────────────────────────
 async function loadStats() {
   try {
-    const res = await fetch(`${API}/admin/stats?username=${currentUser.username}`);
+    const res = await fetchWithRetry(`${API}/admin/stats?username=${currentUser.username}`);
     const s = await res.json();
     if(s.error) return;
     const fields = {
@@ -161,49 +183,63 @@ async function loadStats() {
 }
 
 // ── SUPER ADMIN TREE (admin hierarchy only) ────────────────────
+function renderAdminNode(a, isLast) {
+  const perms = a.permissions || [];
+  const children = a.children || [];
+  return `
+    <div class="tree-node">
+      <div class="tree-connector"></div>
+      <div class="tree-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <div>
+            <span class="role-badge admin-badge">🛡️ Admin</span>
+            <strong style="margin-left:8px;">@${esc(a.username)}</strong>
+            <span style="color:var(--text-muted);font-size:0.8rem;margin-left:6px;">— ${esc(a.fullname||"")}</span>
+            ${a.banned ? `<span class="role-badge banned-badge" style="margin-left:6px;">🚫 Suspended</span>` : ""}
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="admin-action-btn promote-btn" onclick='openEditUserModal("${a.username}", "admin", ${JSON.stringify(perms)})'>✏️ Edit Permissions</button>
+            <button class="admin-action-btn ban-btn" onclick="revokeAdmin('${a.username}')">❌ Revoke Admin</button>
+          </div>
+        </div>
+        <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px;">
+          ${perms.length ? perms.map(p => `<span style="background:rgba(108,71,255,0.15);color:var(--primary-light);padding:3px 10px;border-radius:20px;font-size:0.75rem;">${allPermLabels[p]||p}</span>`).join("") : `<span style="color:var(--text-muted);font-size:0.82rem;">No permissions assigned</span>`}
+        </div>
+      </div>
+      ${children.length ? `
+        <div class="tree-children">
+          ${children.map((c,i) => renderAdminNode(c, i===children.length-1)).join("")}
+        </div>` : ""}
+    </div>`;
+}
+
 async function loadAdminTree() {
   const container = document.getElementById("admin-tree-container");
   container.innerHTML = `<div class="empty-state">Loading...</div>`;
   try {
-    const res = await fetch(`${API}/admin/admin-tree?username=${currentUser.username}`);
-    const admins = await res.json();
+    const res = await fetchWithRetry(`${API}/admin/admin-tree?username=${currentUser.username}`);
+    const data = await res.json();
+    if (data.error) { container.innerHTML = `<div class="empty-state">${data.error}</div>`; return; }
+    const tree = data.tree || [];
+    const isSuperadminRoot = data.root_role === "superadmin";
 
     let html = `
       <div class="admin-card" style="margin-bottom:20px;">
-        <div class="profile-card-title">👑 Super Admin Tree — Admin Hierarchy</div>
-        <div style="padding:12px;background:linear-gradient(135deg,rgba(245,158,11,0.1),rgba(217,119,6,0.05));border:1px solid rgba(245,158,11,0.3);border-radius:12px;margin-bottom:16px;">
-          <span class="role-badge superadmin-badge">👑 Super Admin</span>
-          <strong style="margin-left:8px;">@${currentUser.username}</strong>
-          <span style="color:var(--text-muted);font-size:0.8rem;margin-left:8px;">— Full Access</span>
-        </div>`;
+        <div class="profile-card-title">${isSuperadminRoot ? "👑 Super Admin Tree — Admin Hierarchy" : "🛡️ Your Admin Sub-Tree"}</div>
+        <div class="tree-wrap">
+          <div class="tree-root">
+            <span class="role-badge ${isSuperadminRoot ? "superadmin-badge" : "admin-badge"}">${isSuperadminRoot ? "👑 Super Admin" : "🛡️ Admin"}</span>
+            <strong style="margin-left:8px;">@${esc(data.root)}</strong>
+            <span style="color:var(--text-muted);font-size:0.8rem;margin-left:8px;">— Full Access</span>
+          </div>`;
 
-    if(!admins.length) {
+    if (!tree.length) {
       html += `<div class="empty-state">No admins created yet. Use the Edit button in Users tab to make someone an Admin!</div>`;
     } else {
-      admins.forEach(a => {
-        const perms = a.permissions || [];
-        html += `
-          <div style="margin-left:24px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;margin-bottom:10px;">
-            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-              <div>
-                <span class="role-badge admin-badge">🛡️ Admin</span>
-                <strong style="margin-left:8px;">@${esc(a.username)}</strong>
-                <span style="color:var(--text-muted);font-size:0.8rem;margin-left:6px;">— ${a.fullname}</span>
-                ${a.banned ? `<span class="role-badge banned-badge" style="margin-left:6px;">🚫 Suspended</span>` : ""}
-              </div>
-              <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                <button class="admin-action-btn promote-btn" onclick='openEditUserModal("${a.username}", "admin", ${JSON.stringify(perms)})'>✏️ Edit Permissions</button>
-                <button class="admin-action-btn ban-btn" onclick="revokeAdmin('${a.username}')">❌ Revoke Admin</button>
-              </div>
-            </div>
-            <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px;">
-              ${perms.length ? perms.map(p => `<span style="background:rgba(108,71,255,0.15);color:var(--primary-light);padding:3px 10px;border-radius:20px;font-size:0.75rem;">${allPermLabels[p]||p}</span>`).join("") : `<span style="color:var(--text-muted);font-size:0.82rem;">No permissions assigned</span>`}
-            </div>
-          </div>`;
-      });
+      html += `<div class="tree-children tree-children-root">${tree.map((c,i) => renderAdminNode(c, i===tree.length-1)).join("")}</div>`;
     }
 
-    html += `</div>`;
+    html += `</div></div>`;
     container.innerHTML = html;
   } catch(e) {
     container.innerHTML = `<div class="empty-state">Could not load admin tree. ${e.message}</div>`;
@@ -329,7 +365,7 @@ async function confirmDeleteUser() {
 // ── USERS TABLE ───────────────────────────────────────────────
 async function loadUsers() {
   try {
-    const res = await fetch(`${API}/admin/users?username=${currentUser.username}`);
+    const res = await fetchWithRetry(`${API}/admin/users?username=${currentUser.username}`);
     allUsers = await res.json();
     if(allUsers.error) { document.getElementById("users-tbody").innerHTML = `<tr><td colspan="7" style="color:var(--text-muted);text-align:center;">${allUsers.error}</td></tr>`; return; }
     filterUsers();
@@ -488,7 +524,7 @@ async function unbanUser(target) {
 async function loadReportedPosts() {
   const feed = document.getElementById("reported-feed");
   try {
-    const res = await fetch(`${API}/admin/reported-posts?username=${currentUser.username}`);
+    const res = await fetchWithRetry(`${API}/admin/reported-posts?username=${currentUser.username}`);
     const posts = await res.json();
     if(posts.error) { feed.innerHTML = `<div class="empty-state">${posts.error}</div>`; return; }
     if(!posts.length) { feed.innerHTML = `<div class="empty-state">✅ No reported posts!</div>`; return; }
@@ -524,6 +560,94 @@ async function deletePost(postId) {
   } catch { alert("Error!"); }
 }
 
+// ── ALL POSTS (full history — separate from Reports) ────────────
+let allPostsData = [];
+async function loadAllPosts() {
+  const feed = document.getElementById("allposts-feed");
+  try {
+    const res = await fetchWithRetry(`${API}/admin/all-posts?username=${currentUser.username}`);
+    const posts = await res.json();
+    if(posts.error) { feed.innerHTML = `<div class="empty-state">${posts.error}</div>`; return; }
+    allPostsData = posts;
+    filterAllPosts();
+  } catch { feed.innerHTML = `<div class="empty-state">Could not load posts.</div>`; }
+}
+function filterAllPosts() {
+  const q = (document.getElementById("allposts-search")?.value || "").toLowerCase();
+  const filtered = q
+    ? allPostsData.filter(p => (p.title||"").toLowerCase().includes(q) || (p.username||"").toLowerCase().includes(q))
+    : allPostsData;
+  renderAllPosts(filtered);
+}
+function renderAllPosts(posts) {
+  const feed = document.getElementById("allposts-feed");
+  if(!posts.length) { feed.innerHTML = `<div class="empty-state">No posts found.</div>`; return; }
+  // Newest first for readability, even though the data is stored oldest→newest
+  const ordered = [...posts].reverse();
+  feed.innerHTML = ordered.map(p => `
+    <div class="post-card">
+      <div class="post-card-header">
+        <div class="post-topic-badge">${esc(p.topic)}</div>
+        <div class="post-meta">${timeAgo(p.createdAt)}</div>
+      </div>
+      <div class="post-title">${esc(p.title)}</div>
+      <div class="post-desc">${esc(p.description)}</div>
+      <div style="margin:8px 0;font-size:0.8rem;color:var(--text-muted);">
+        💬 ${p.comment_count||0} comment${p.comment_count===1?"":"s"}
+        ${p.report_count ? ` · ⚠️ ${p.report_count} report${p.report_count===1?"":"s"}` : ""}
+        ${p.expires_at ? (p.expires_at < Date.now() ? " · ⏰ Expired" : " · ⏰ Active") : " · 🔁 Forever"}
+      </div>
+      <div class="post-footer">
+        <div class="post-author">By <span>@${esc(p.username)}</span></div>
+        <div class="post-actions">
+          ${myPermissions.includes("delete_reports") ? `<button class="admin-action-btn ban-btn" onclick="deletePostFromAll('${p._id}')">🗑️ Delete Post</button>` : ""}
+        </div>
+      </div>
+    </div>`).join("");
+}
+async function deletePostFromAll(postId) {
+  if(!confirm("Delete this post permanently?")) return;
+  try {
+    const res = await fetch(`${API}/admin/delete-post/${postId}?username=${currentUser.username}`, { method:"DELETE" });
+    const data = await res.json();
+    alert(data.message || data.error);
+    loadAllPosts();
+  } catch { alert("Error!"); }
+}
+
+// ── ALL COMMENTS (flattened across every post) ───────────────────
+let allCommentsData = [];
+async function loadAllComments() {
+  const tbody = document.getElementById("comments-tbody");
+  try {
+    const res = await fetchWithRetry(`${API}/admin/all-comments?username=${currentUser.username}`);
+    const comments = await res.json();
+    if(comments.error) { tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">${comments.error}</td></tr>`; return; }
+    allCommentsData = comments;
+    filterAllComments();
+  } catch { tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">Could not load comments.</td></tr>`; }
+}
+function filterAllComments() {
+  const q = (document.getElementById("comments-search")?.value || "").toLowerCase();
+  const filtered = q
+    ? allCommentsData.filter(c => (c.text||"").toLowerCase().includes(q) || (c.username||"").toLowerCase().includes(q))
+    : allCommentsData;
+  renderAllComments(filtered);
+}
+function renderAllComments(comments) {
+  const tbody = document.getElementById("comments-tbody");
+  if(!comments.length) { tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">No comments yet.</td></tr>`; return; }
+  const ordered = [...comments].reverse(); // newest first for readability
+  tbody.innerHTML = ordered.map(c => `
+    <tr>
+      <td style="color:var(--text-muted);font-size:0.8rem;">${timeAgo(c.createdAt)}</td>
+      <td><strong>@${esc(c.username)}</strong></td>
+      <td style="max-width:340px;">${esc(c.text)}</td>
+      <td style="color:var(--text-muted);">${esc(c.post_title)}</td>
+      <td>@${esc(c.post_username)}</td>
+    </tr>`).join("");
+}
+
 // ── ANNOUNCEMENT ──────────────────────────────────────────────
 async function postAnnouncement() {
   const title = document.getElementById("ann-title").value.trim();
@@ -548,7 +672,7 @@ async function postAnnouncement() {
 
 async function loadPastAnnouncements() {
   try {
-    const res = await fetch(`${API}/admin/announcements`);
+    const res = await fetchWithRetry(`${API}/admin/announcements`);
     const anns = await res.json();
     const el = document.getElementById("past-announcements");
     if(!el) return;
@@ -570,7 +694,7 @@ async function loadPastAnnouncements() {
 async function loadAuditLog() {
   const tbody = document.getElementById("audit-tbody");
   try {
-    const res = await fetch(`${API}/admin/audit-logs?username=${currentUser.username}`);
+    const res = await fetchWithRetry(`${API}/admin/audit-logs?username=${currentUser.username}`);
     const logs = await res.json();
     if(logs.error) { tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">${logs.error}</td></tr>`; return; }
     if(!logs.length) { tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">No audit logs yet.</td></tr>`; return; }

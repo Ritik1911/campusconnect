@@ -236,23 +236,62 @@ def revoke_admin():
 # ══════════════════════════════════════════════════════════════
 #  GET ADMIN TREE (who created whom)
 # ══════════════════════════════════════════════════════════════
+def _build_tree_node(admin_doc):
+    node = dict(admin_doc)
+    node["warning_count"] = warnings_col.count_documents({"username": node["username"]})
+    node["children"] = []
+    return node
+
+def _attach_children(node, by_parent):
+    """Recursively attach an admin's children (admins THEY created) so the
+    tree shows a real parent -> child -> grandchild chain, not just one level."""
+    kids = by_parent.get(node["username"], [])
+    for k in kids:
+        child_node = _build_tree_node(k)
+        _attach_children(child_node, by_parent)
+        node["children"].append(child_node)
+
 @admin_bp.route("/admin-tree", methods=["GET"])
 def admin_tree():
     username = request.args.get("username", "")
     if not is_superadmin(username) and not has_permission(username, "manage_users"):
         return jsonify({"error": "Unauthorized"}), 403
 
+    all_admins = list(users_col.find({"role": "admin"}, {"password": 0, "plain_password": 0}))
+    for a in all_admins:
+        a["_id"] = str(a["_id"])
+
+    admin_usernames = {a["username"] for a in all_admins}
+    # Group every admin by who created them, so we can walk the chain
+    # Super-Admin -> Admin -> Admin they made an Admin -> ... at any depth.
+    by_parent = {}
+    for a in all_admins:
+        parent = a.get("created_by")
+        by_parent.setdefault(parent, []).append(a)
+
     if is_superadmin(username):
-        # Super admin sees full tree
-        admins = list(users_col.find({"role": "admin"}, {"password": 0, "_id": 0, "plain_password": 0}))
+        # Super admin sees the FULL tree, rooted at themselves.
+        # Any admin whose creator isn't another known admin (i.e. created
+        # directly by Super-Admin, or has no recorded parent) is a top-level child.
+        top_level = []
+        for a in all_admins:
+            parent = a.get("created_by")
+            if not parent or parent not in admin_usernames:
+                top_level.append(a)
+        tree = []
+        for a in top_level:
+            node = _build_tree_node(a)
+            _attach_children(node, by_parent)
+            tree.append(node)
+        return jsonify({"root": username, "root_role": "superadmin", "tree": tree}), 200
     else:
-        # Admin sees only their subtree
-        admins = list(users_col.find({"created_by": username}, {"password": 0, "_id": 0, "plain_password": 0}))
-
-    for a in admins:
-        a["warning_count"] = warnings_col.count_documents({"username": a["username"]})
-
-    return jsonify(admins), 200
+        # A regular admin sees their OWN subtree: themselves at the root,
+        # with every admin they created (and every admin those admins created, etc.)
+        my_doc = get_user(username) or {"username": username}
+        my_doc = {k: v for k, v in my_doc.items() if k not in ["password", "plain_password", "_id"]}
+        root_node = _build_tree_node(my_doc)
+        _attach_children(root_node, by_parent)
+        return jsonify({"root": username, "root_role": "admin", "tree": root_node["children"]}), 200
 
 # ══════════════════════════════════════════════════════════════
 #  PLATFORM STATS
@@ -437,6 +476,46 @@ def get_reported_posts():
     for p in posts:
         p["_id"] = str(p["_id"])
     return jsonify(posts), 200
+
+# ══════════════════════════════════════════════════════════════
+#  ALL POSTS — full history, from the very first post to now
+#  (separate from Reported Posts; used by the "Total Posts" stat)
+# ══════════════════════════════════════════════════════════════
+@admin_bp.route("/all-posts", methods=["GET"])
+def get_all_posts_admin():
+    username = request.args.get("username", "")
+    if not has_permission(username, "manage_posts"):
+        return jsonify({"error": "Unauthorized"}), 403
+    posts = list(posts_col.find({}).sort("createdAt", 1))  # oldest → newest = starting se abhi tak
+    for p in posts:
+        p["_id"] = str(p["_id"])
+        p["comment_count"] = len(p.get("comments", []))
+        p["report_count"] = len(p.get("reports", []))
+    return jsonify(posts), 200
+
+# ══════════════════════════════════════════════════════════════
+#  ALL COMMENTS — flattened list of every comment on every post
+#  (separate panel from Reported Posts; used by the "Comments" stat)
+# ══════════════════════════════════════════════════════════════
+@admin_bp.route("/all-comments", methods=["GET"])
+def get_all_comments_admin():
+    username = request.args.get("username", "")
+    if not has_permission(username, "manage_posts"):
+        return jsonify({"error": "Unauthorized"}), 403
+    posts = list(posts_col.find({"comments": {"$exists": True, "$ne": []}}))
+    comments = []
+    for p in posts:
+        for c in p.get("comments", []):
+            comments.append({
+                "post_id": str(p["_id"]),
+                "post_title": p.get("title", ""),
+                "post_username": p.get("username", ""),
+                "username": c.get("username", ""),
+                "text": c.get("text", ""),
+                "createdAt": c.get("createdAt", 0),
+            })
+    comments.sort(key=lambda c: c["createdAt"])  # oldest → newest
+    return jsonify(comments), 200
 
 # ══════════════════════════════════════════════════════════════
 #  ANNOUNCEMENT

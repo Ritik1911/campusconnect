@@ -16,6 +16,24 @@ function logout() {
 function getReadPosts() { return JSON.parse(localStorage.getItem("cc_read") || "[]"); }
 function getInterestedPosts() { return JSON.parse(localStorage.getItem("cc_interested") || "[]"); }
 
+// Same retry helper as dashboard.js — softens cold-start hiccups on the
+// free-tier backend so they don't show up as a flat "Could not load" (item 10)
+async function fetchWithRetry(url, options = {}, retries = 2, timeoutMs = 15000) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timer);
+      return res;
+    } catch (err) {
+      clearTimeout(timer);
+      if (attempt === retries) throw err;
+      await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
+    }
+  }
+}
+
 function esc(s) {
   return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
@@ -83,7 +101,7 @@ function renderPostCard(p, extra = "") {
 async function loadMyPosts() {
   const feed = document.getElementById("my-posts-feed");
   try {
-    const res = await fetch(`${API}/posts/all`);
+    const res = await fetchWithRetry(`${API}/posts/all`);
     const posts = await res.json();
     const myPosts = posts.filter(p => p.username === currentUser.username);
 
@@ -96,7 +114,7 @@ async function loadMyPosts() {
     }
     feed.innerHTML = myPosts.map(p => renderPostCard(p)).join("");
   } catch {
-    feed.innerHTML = `<div class="empty-state">Could not load your posts.</div>`;
+    feed.innerHTML = `<div class="empty-state">❌ Could not load your posts. <button class="post-action-btn" onclick="loadMyPosts()">🔄 Retry</button></div>`;
   }
 }
 
@@ -110,7 +128,7 @@ async function loadReadPosts() {
   }
 
   try {
-    const res = await fetch(`${API}/posts/all`);
+    const res = await fetchWithRetry(`${API}/posts/all`);
     const posts = await res.json();
     const readPosts = posts.filter(p => readIds.includes(p._id));
 
@@ -123,7 +141,7 @@ async function loadReadPosts() {
       <button class="post-action-btn btn-read" onclick="markUnread('${p._id}')">✅ Mark Unread</button>
     `)).join("");
   } catch {
-    feed.innerHTML = `<div class="empty-state">Could not load read posts.</div>`;
+    feed.innerHTML = `<div class="empty-state">❌ Could not load read posts. <button class="post-action-btn" onclick="loadReadPosts()">🔄 Retry</button></div>`;
   }
 }
 
